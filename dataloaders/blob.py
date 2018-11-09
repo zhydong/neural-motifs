@@ -105,8 +105,6 @@ class Blob(object):
             self.proposals.append(np.column_stack((i * np.ones(d['proposals'].shape[0], dtype=np.float32),
                                                    d['scale'] * d['proposals'].astype(np.float32))))
 
-
-
     def _chunkize(self, datom, tensor=torch.LongTensor):
         """
         Turn data list into chunks, one per GPU
@@ -142,8 +140,6 @@ class Blob(object):
 
         if len(self.proposals) != 0:
             self.proposals, self.proposal_chunks = self._chunkize(self.proposals, tensor=torch.FloatTensor)
-
-
 
     def _scatter(self, x, chunk_sizes, dim=0):
         """ Helper function"""
@@ -212,8 +208,16 @@ class Blob(object):
         if index == 0 and self.num_gpus == 1:
             image_offset = 0
             if self.is_train:
-                return (self.imgs, self.im_sizes[0], image_offset,
-                        self.gt_boxes, self.gt_classes, rels, proposals, self.train_anchor_inds)
+                return (
+                    self.imgs,
+                    self.im_sizes[0],
+                    image_offset,
+                    self.gt_boxes,
+                    self.gt_classes,
+                    rels,
+                    proposals,
+                    self.train_anchor_inds
+                )
             return self.imgs, self.im_sizes[0], image_offset, self.gt_boxes, self.gt_classes, rels, proposals
 
         # Otherwise proposals is None
@@ -223,8 +227,22 @@ class Blob(object):
         # TODO: Return a namedtuple
         if self.is_train:
             return (
-            self.imgs[index], self.im_sizes[index], image_offset,
-            self.gt_boxes[index], self.gt_classes[index], rels_i, None, self.train_anchor_inds[index])
-        return (self.imgs[index], self.im_sizes[index], image_offset,
-                self.gt_boxes[index], self.gt_classes[index], rels_i, None)
+                self.imgs[index],
+                self.im_sizes[index],
+                image_offset,
+                self.gt_boxes[index],
+                self.gt_classes[index],
+                rels_i,
+                None,
+                self.train_anchor_inds[index]
+            )
+        return (
+            self.imgs[index],
+            self.im_sizes[index],
+            image_offset,
+            self.gt_boxes[index],
+            self.gt_classes[index],
+            rels_i,
+            None
+        )
 

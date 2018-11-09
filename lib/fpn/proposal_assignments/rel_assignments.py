@@ -62,7 +62,7 @@ def rel_assignments(im_inds, rpn_rois, roi_gtlabels, gt_boxes, gt_classes, gt_re
         pred_boxlabels_i = pred_boxlabels_np[pred_ind]
 
         ious = bbox_overlaps(pred_boxes_i, gt_boxes_i)
-        is_match = (pred_boxlabels_i[:,None] == gt_classes_i[None]) & (ious >= fg_thresh)
+        is_match = (pred_boxlabels_i[:, None] == gt_classes_i[None]) & (ious >= fg_thresh)
 
         # FOR BG. Limit ourselves to only IOUs that overlap, but are not the exact same box
         pbi_iou = bbox_overlaps(pred_boxes_i, pred_boxes_i)
@@ -70,9 +70,9 @@ def rel_assignments(im_inds, rpn_rois, roi_gtlabels, gt_boxes, gt_classes, gt_re
             rel_possibilities = (pbi_iou < 1) & (pbi_iou > 0)
             rels_intersect = rel_possibilities
         else:
-            rel_possibilities = np.ones((pred_boxes_i.shape[0], pred_boxes_i.shape[0]),
-                                        dtype=np.int64) - np.eye(pred_boxes_i.shape[0],
-                                                                 dtype=np.int64)
+            rel_possibilities = \
+                np.ones((pred_boxes_i.shape[0], pred_boxes_i.shape[0]), dtype=np.int64) \
+                - np.eye(pred_boxes_i.shape[0], dtype=np.int64)
             rels_intersect = (pbi_iou < 1) & (pbi_iou > 0)
 
         # ONLY select relations between ground truth because otherwise we get useless data
@@ -86,11 +86,15 @@ def rel_assignments(im_inds, rpn_rois, roi_gtlabels, gt_boxes, gt_classes, gt_re
             fg_rels_i = []
             fg_scores_i = []
 
+            # in a relationship(from_gtind, to_gtind, rel_id)
+            # select rois match from_gtind and to_gtind
+            # score is iou1 * iou2
             for from_ind in np.where(is_match[:, from_gtind])[0]:
                 for to_ind in np.where(is_match[:, to_gtind])[0]:
                     if from_ind != to_ind:
                         fg_rels_i.append((from_ind, to_ind, rel_id))
                         fg_scores_i.append((ious[from_ind, from_gtind] * ious[to_ind, to_gtind]))
+                        # this is like a flag, use the box rel as background when value is 1
                         rel_possibilities[from_ind, to_ind] = 0
             if len(fg_rels_i) == 0:
                 continue
@@ -98,6 +102,7 @@ def rel_assignments(im_inds, rpn_rois, roi_gtlabels, gt_boxes, gt_classes, gt_re
             p = p / p.sum()
             p_size.append(p.shape[0])
             num_to_add = min(p.shape[0], num_sample_per_gt)
+            # for every ground truth relationship, we only sample num_sample_per_gt samples
             for rel_to_add in npr.choice(p.shape[0], p=p, size=num_to_add, replace=False):
                 fg_rels.append(fg_rels_i[rel_to_add])
 

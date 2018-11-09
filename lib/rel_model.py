@@ -306,23 +306,54 @@ class RelModel(nn.Module):
     """
     RELATIONSHIPS
     """
-    def __init__(self, classes, rel_classes, mode='sgdet', num_gpus=1, use_vision=True, require_overlap_det=True,
-                 embed_dim=200, hidden_dim=256, pooling_dim=2048,
-                 nl_obj=1, nl_edge=2, use_resnet=False, order='confidence', thresh=0.01,
-                 use_proposals=False, pass_in_obj_feats_to_decoder=True,
-                 pass_in_obj_feats_to_edge=True, rec_dropout=0.0, use_bias=True, use_tanh=True,
-                 limit_vision=True):
-
+    def __init__(
+            self,
+            classes,
+            rel_classes,
+            mode='sgdet',
+            num_gpus=1,
+            use_vision=True,
+            require_overlap_det=True,
+            embed_dim=200,
+            hidden_dim=256,
+            pooling_dim=2048,
+            nl_obj=1,
+            nl_edge=2,
+            use_resnet=False,
+            order='confidence',
+            thresh=0.01,
+            use_proposals=False,
+            pass_in_obj_feats_to_decoder=True,
+            pass_in_obj_feats_to_edge=True,
+            rec_dropout=0.0,
+            use_bias=True,
+            use_tanh=True,
+            limit_vision=True
+    ):
         """
-        :param classes: Object classes
-        :param rel_classes: Relationship classes. None if were not using rel mode
-        :param mode: (sgcls, predcls, or sgdet)
-        :param num_gpus: how many GPUS 2 use
-        :param use_vision: Whether to use vision in the final product
-        :param require_overlap_det: Whether two objects must intersect
-        :param embed_dim: Dimension for all embeddings
-        :param hidden_dim: LSTM hidden size
-        :param obj_dim:
+        Args:
+            classes: list, list of 151 object class names(including background)
+            rel_classes: list, list of 51 predicate names( including background(norelationship))
+            mode: string, 'sgdet', 'predcls' or 'sgcls'
+            num_gpus: integer, number of GPUs to use
+            use_vision: boolean, whether to use vision in the final product
+            require_overlap_det: boolean, whether two object must intersect
+            embed_dim: integer, number of dimension for all embeddings
+            hidden_dim: integer, hidden size of LSTM
+            pooling_dim: integer, outputsize of vgg fc layer
+            nl_obj: integer, number of object context layer, 2 in paper
+            nl_edge: integer, number of edge context layer, 4 in paper
+            use_resnet: integer, use resnet for backbone
+            order: string, value must be in ('size', 'confidence', 'random', 'leftright'), order of RoIs
+            thresh: float, threshold for scores of boxes
+                if score of box smaller than thresh, then it will be abandoned
+            use_proposals: boolean, whether to use proposals
+            pass_in_obj_feats_to_decoder: boolean, whether to pass object features to decoder RNN
+            pass_in_obj_feats_to_edge: boolean, whether to pass object features to edge context RNN
+            rec_dropout: float, dropout rate in RNN
+            use_bias: boolean,
+            use_tanh: boolean,
+            limit_vision: boolean,
         """
         super(RelModel, self).__init__()
         self.classes = classes
@@ -340,7 +371,7 @@ class RelModel(nn.Module):
         self.use_bias = use_bias
         self.use_vision = use_vision
         self.use_tanh = use_tanh
-        self.limit_vision=limit_vision
+        self.limit_vision = limit_vision
         self.require_overlap = require_overlap_det and self.mode == 'sgdet'
 
         self.detector = ObjectDetector(
@@ -454,42 +485,91 @@ class RelModel(nn.Module):
             features, rois)
         return self.roi_fmap_obj(feature_pool.view(rois.size(0), -1))
 
-    def forward(self, x, im_sizes, image_offset,
-                gt_boxes=None, gt_classes=None, gt_rels=None, proposals=None,
-                train_anchor_inds=None, return_fmap=False):
-        """
-        Forward pass for detection
-        :param x: Images@[batch_size, 3, IM_SIZE, IM_SIZE]
-        :param im_sizes: A numpy array of (h, w, scale) for each image.
-        :param image_offset: Offset onto what image we're on for MGPU training (if single GPU this is 0)
-        :param gt_boxes:
+    def forward(
+            self,
+            x,
+            im_sizes,
+            image_offset,
+            gt_boxes=None,
+            gt_classes=None,
+            gt_rels=None,
+            proposals=None,
+            train_anchor_inds=None,
+            return_fmap=False
+    ):
+        """Forward pass for detection
+        Args:
+            x: Images@[batch_size, 3, IM_SIZE, IM_SIZE]
+            im_sizes: A numpy array of (h, w, scale) for each image.
+            image_offset: Offset onto what image we're on for MGPU training (if single GPU this is 0)
 
-        Training parameters:
-        :param gt_boxes: [num_gt, 4] GT boxes over the batch.
-        :param gt_classes: [num_gt, 2] gt boxes where each one is (img_id, class)
-        :param train_anchor_inds: a [num_train, 2] array of indices for the anchors that will
+            Training parameters:
+            gt_boxes: [num_gt, 4] GT boxes over the batch.
+            gt_classes: [num_gt, 2] gt boxes where each one is (img_id, class)
+            gt_rels:
+            proposals:
+            train_anchor_inds: a [num_train, 2] array of indices for the anchors that will
                                   be used to compute the training loss. Each (img_ind, fpn_idx)
-        :return: If train:
-            scores, boxdeltas, labels, boxes, boxtargets, rpnscores, rpnboxes, rellabels
-            
-            if test:
-            prob dists, boxes, img inds, maxscores, classes
+            return_fmap:
+
+        Returns:
+            If train:
+                scores, boxdeltas, labels, boxes, boxtargets, rpnscores, rpnboxes, rellabels
+            If test:
+                prob dists, boxes, img inds, maxscores, classes
             
         """
-        result = self.detector(x, im_sizes, image_offset, gt_boxes, gt_classes, gt_rels, proposals,
-                               train_anchor_inds, return_fmap=True)
+        result = self.detector(
+            x, im_sizes, image_offset, gt_boxes,
+            gt_classes, gt_rels, proposals, train_anchor_inds, return_fmap=True
+        )
+        """
+        Results attributes:
+            od_obj_dists=None,
+            rm_obj_dists=None,
+            obj_scores=None
+            obj_preds=None, 
+            obj_fmap=None,
+            od_box_deltas=None, 
+            rm_box_deltas=None,
+            od_box_targets=None, 
+            rm_box_targets=None, 
+            od_box_priors=None, 
+            rm_box_priors=None,
+            boxes_assigned=None, 
+            boxes_all=None, 
+            od_obj_labels=None, 
+            rm_obj_labels=None,
+            rpn_scores=None, 
+            rpn_box_deltas=None, 
+            rel_labels=None,
+            im_inds=None, 
+            fmap=None, 
+            rel_dists=None, 
+            rel_inds=None, 
+            rel_rep=None
+        """
         if result.is_none():
             return ValueError("heck")
 
+        # image_offset refer to Blob
+        # self.batch_size_per_gpu * index
         im_inds = result.im_inds - image_offset
         boxes = result.rm_box_priors
 
         if self.training and result.rel_labels is None:
             assert self.mode == 'sgdet'
-            result.rel_labels = rel_assignments(im_inds.data, boxes.data, result.rm_obj_labels.data,
-                                                gt_boxes.data, gt_classes.data, gt_rels.data,
-                                                image_offset, filter_non_overlap=True,
-                                                num_sample_per_gt=1)
+            result.rel_labels = rel_assignments(
+                im_inds.data,
+                boxes.data,
+                result.rm_obj_labels.data,
+                gt_boxes.data,
+                gt_classes.data,
+                gt_rels.data,
+                image_offset,
+                filter_non_overlap=True,
+                num_sample_per_gt=1
+            )
 
         rel_inds = self.get_rel_inds(result.rel_labels, im_inds, boxes)
 
@@ -524,7 +604,7 @@ class RelModel(nn.Module):
             vr = self.visual_rep(result.fmap.detach(), rois, rel_inds[:, 1:])
             if self.limit_vision:
                 # exact value TBD
-                prod_rep = torch.cat((prod_rep[:,:2048] * vr[:,:2048], prod_rep[:,2048:]), 1)
+                prod_rep = torch.cat((prod_rep[:, :2048] * vr[:, :2048], prod_rep[:, 2048:]), 1)
             else:
                 prod_rep = prod_rep * vr
 

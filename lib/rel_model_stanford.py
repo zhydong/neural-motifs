@@ -15,7 +15,8 @@ from lib.rel_model import RelModel
 
 MODES = ('sgdet', 'sgcls', 'predcls')
 
-SIZE=512
+SIZE = 512
+
 
 class RelModelStanford(RelModel):
     """

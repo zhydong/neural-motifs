@@ -18,6 +18,8 @@ from lib.evaluation.sg_eval import BasicSceneGraphEvaluator
 from lib.pytorch_misc import print_para
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 
+from IPython import embed
+
 conf = ModelConfig()
 if conf.model == 'motifnet':
     from lib.rel_model import RelModel
@@ -34,6 +36,7 @@ train_loader, val_loader = VGDataLoader.splits(train, val, mode='rel',
                                                num_workers=conf.num_workers,
                                                num_gpus=conf.num_gpus)
 
+# embed(header='fuck in train_rel.py')
 detector = RelModel(classes=train.ind_to_classes, rel_classes=train.ind_to_predicates,
                     num_gpus=conf.num_gpus, mode=conf.mode, require_overlap_det=True,
                     use_resnet=conf.use_resnet, order=conf.order,
