@@ -6,26 +6,30 @@ from argparse import ArgumentParser
 import numpy as np
 
 ROOT_PATH = os.path.dirname(os.path.realpath(__file__))
-DATA_PATH = os.path.join(ROOT_PATH, 'data')
+DATA_PATH = os.path.join(ROOT_PATH, 'data', 'visual_genome')
+WD_DIR = os.path.join(ROOT_PATH, 'data', 'wordvector')
+
 
 def path(fn):
     return os.path.join(DATA_PATH, fn)
 
+
 def stanford_path(fn):
-    return os.path.join(DATA_PATH, 'stanford_filtered', fn)
+    return os.path.join(DATA_PATH, 'sggimp', fn)
 
 # =============================================================================
 # Update these with where your data is stored ~~~~~~~~~~~~~~~~~~~~~~~~~
 
-VG_IMAGES = '/home/rowan/datasets2/VG_100K_2/VG_100K'
+
+VG_IMAGES = '/home/zhydong/mydata/visual_genome/VG_100K'
 RCNN_CHECKPOINT_FN = path('faster_rcnn_500k.h5')
 
-IM_DATA_FN = stanford_path('image_data.json')
+IM_DATA_FN = stanford_path('image_data_correct.json')
 VG_SGG_FN = stanford_path('VG-SGG.h5')
 VG_SGG_DICT_FN = stanford_path('VG-SGG-dicts.json')
 PROPOSAL_FN = stanford_path('proposals.h5')
 
-COCO_PATH = '/home/rowan/datasets/mscoco'
+COCO_PATH = '/home/zhydong/datasets/mscoco'
 # =============================================================================
 # =============================================================================
 
@@ -60,6 +64,7 @@ ANCHOR_SIZE = 16
 ANCHOR_RATIOS = (0.23232838, 0.63365731, 1.28478321, 3.15089189) #(0.5, 1, 2)
 ANCHOR_SCALES = (2.22152954, 4.12315647, 7.21692515, 12.60263013, 22.7102731) #(4, 8, 16, 32)
 
+
 class ModelConfig(object):
     """Wrapper class for model hyperparameters."""
     def __init__(self):
@@ -86,7 +91,7 @@ class ModelConfig(object):
         self.multi_pred=False
         self.cache = None
         self.model = None
-        self.use_proposals=False
+        self.use_proposals = False
         self.use_resnet=False
         self.use_tanh=False
         self.use_bias = False
@@ -136,7 +141,6 @@ class ModelConfig(object):
         if self.model not in ('motifnet', 'stanford'):
             raise ValueError("Invalid model {}".format(self.model))
 
-
         if self.ckpt is not None and not os.path.exists(self.ckpt):
             raise ValueError("Ckpt file ({}) doesnt exist".format(self.ckpt))
 
@@ -146,7 +150,6 @@ class ModelConfig(object):
         :return:
         """
         parser = ArgumentParser(description='training code')
-
 
         # Options to deprecate
         parser.add_argument('-coco', dest='coco', help='Use COCO (default to VG)', action='store_true')

@@ -10,15 +10,17 @@ import six
 import torch
 from six.moves.urllib.request import urlretrieve
 from tqdm import tqdm
+import os.path as osp
 
-from config import DATA_PATH
+from config import DATA_PATH, WD_DIR
 import sys
 
-def obj_edge_vectors(names, wv_type='glove.6B', wv_dir=DATA_PATH, wv_dim=300):
+
+def obj_edge_vectors(names, wv_type='glove.6B', wv_dir=WD_DIR, wv_dim=300):
     wv_dict, wv_arr, wv_size = load_word_vectors(wv_dir, wv_type, wv_dim)
 
     vectors = torch.Tensor(len(names), wv_dim)
-    vectors.normal_(0,1)
+    vectors.normal_(0, 1)
 
     for i, token in enumerate(names):
         wv_index = wv_dict.get(token, None)
@@ -36,12 +38,13 @@ def obj_edge_vectors(names, wv_type='glove.6B', wv_dir=DATA_PATH, wv_dim=300):
 
     return vectors
 
+
 URL = {
         'glove.42B': 'http://nlp.stanford.edu/data/glove.42B.300d.zip',
         'glove.840B': 'http://nlp.stanford.edu/data/glove.840B.300d.zip',
         'glove.twitter.27B': 'http://nlp.stanford.edu/data/glove.twitter.27B.zip',
-        'glove.6B': 'http://nlp.stanford.edu/data/glove.6B.zip',
-        }
+        'glove.6B': 'http://nlp.stanford.edu/data/glove.6B.zip'
+}
 
 
 def load_word_vectors(root, wv_type, dim):
@@ -111,6 +114,7 @@ def load_word_vectors(root, wv_type, dim):
     ret = (wv_dict, wv_arr, wv_size)
     torch.save(ret, fname + '.pt')
     return ret
+
 
 def reporthook(t):
     """https://github.com/tqdm/tqdm"""

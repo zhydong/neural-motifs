@@ -1,7 +1,9 @@
 """
 Visualization script. I used this to create the figures in the paper.
 
-WARNING: I haven't tested this in a while. It's possible that some later features I added break things here, but hopefully there should be easy fixes. I'm uploading this in the off chance it might help someone. If you get it to work, let me know (and also send a PR with bugs/etc)
+WARNING: I haven't tested this in a while. It's possible that some later features I added break things here,
+but hopefully there should be easy fixes. I'm uploading this in the off chance it might help someone.
+If you get it to work, let me know (and also send a PR with bugs/etc)
 """
 
 from dataloaders.visual_genome import VGDataLoader, VG

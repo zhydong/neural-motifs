@@ -1,22 +1,25 @@
 """
 Training script 4 Detection
 """
+import os
+import time
+import logging
+import numpy as np
+import pandas as pd
+from pycocotools.cocoeval import COCOeval
+
+import torch
+from torch import optim
+from torch.nn import functional as F
+from torch.optim.lr_scheduler import ReduceLROnPlateau
+import torch.backends.cudnn as cudnn
+
+from config import ModelConfig, FG_FRACTION, RPN_FG_FRACTION, IM_SCALE, BOX_SCALE
 from dataloaders.mscoco import CocoDetection, CocoDataLoader
 from dataloaders.visual_genome import VGDataLoader, VG
 from lib.object_detector import ObjectDetector
-import numpy as np
-from torch import optim
-import torch
-import pandas as pd
-import time
-import os
-from config import ModelConfig, FG_FRACTION, RPN_FG_FRACTION, IM_SCALE, BOX_SCALE
-from torch.nn import functional as F
 from lib.fpn.box_utils import bbox_loss
-import torch.backends.cudnn as cudnn
-from pycocotools.cocoeval import COCOeval
 from lib.pytorch_misc import optimistic_restore, clip_grad_norm
-from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 cudnn.benchmark = True
 conf = ModelConfig()
@@ -34,6 +37,8 @@ else:
     train_loader, val_loader = VGDataLoader.splits(train, val, batch_size=conf.batch_size,
                                                    num_workers=conf.num_workers,
                                                    num_gpus=conf.num_gpus)
+
+logging.warn('finished loading dataset')
 
 detector = ObjectDetector(classes=train.ind_to_classes, num_gpus=conf.num_gpus,
                           mode='rpntrain' if not conf.use_proposals else 'proposals', use_resnet=conf.use_resnet)

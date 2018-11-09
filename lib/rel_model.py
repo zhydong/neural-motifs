@@ -3,12 +3,15 @@ Let's get the relationships yo
 """
 
 import numpy as np
+import math
+
 import torch
 import torch.nn as nn
 import torch.nn.parallel
 from torch.autograd import Variable
 from torch.nn import functional as F
 from torch.nn.utils.rnn import PackedSequence
+
 from lib.resnet import resnet_l4
 from config import BATCHNORM_MOMENTUM
 from lib.fpn.nms.functions.nms import apply_nms
@@ -20,12 +23,12 @@ from lib.fpn.box_utils import bbox_overlaps, center_size
 from lib.get_union_boxes import UnionBoxesAndFeats
 from lib.fpn.proposal_assignments.rel_assignments import rel_assignments
 from lib.object_detector import ObjectDetector, gather_res, load_vgg
-from lib.pytorch_misc import transpose_packed_sequence_inds, to_onehot, arange, enumerate_by_image, diagonal_inds, Flattener
+from lib.pytorch_misc import \
+    transpose_packed_sequence_inds, to_onehot, arange, enumerate_by_image, diagonal_inds, Flattener
 from lib.sparse_targets import FrequencyBias
 from lib.surgery import filter_dets
 from lib.word_vectors import obj_edge_vectors
 from lib.fpn.roi_align.functions.roi_align import RoIAlignFunction
-import math
 
 
 def _sort_by_score(im_inds, scores):
@@ -59,6 +62,7 @@ def _sort_by_score(im_inds, scores):
     _, inv_perm = torch.sort(perm)
 
     return perm, inv_perm, ls_transposed
+
 
 MODES = ('sgdet', 'sgcls', 'predcls')
 
@@ -145,7 +149,7 @@ class LinearizedContext(nn.Module):
         """
         cxcywh = center_size(box_priors)
         if self.order == 'size':
-            sizes = cxcywh[:,2] * cxcywh[:, 3]
+            sizes = cxcywh[:, 2] * cxcywh[:, 3]
             # sizes = (box_priors[:, 2] - box_priors[:, 0] + 1) * (box_priors[:, 3] - box_priors[:, 1] + 1)
             assert sizes.min() > 0.0
             scores = sizes / (sizes.max() + 1)
@@ -154,7 +158,7 @@ class LinearizedContext(nn.Module):
         elif self.order == 'random':
             scores = torch.FloatTensor(np.random.rand(batch_idx.size(0))).cuda(batch_idx.get_device())
         elif self.order == 'leftright':
-            centers = cxcywh[:,0]
+            centers = cxcywh[:, 0]
             scores = centers / (centers.max() + 1)
         else:
             raise ValueError("invalid mode {}".format(self.order))
@@ -216,8 +220,10 @@ class LinearizedContext(nn.Module):
         encoder_rep = self.obj_ctx_rnn(input_packed)[0][0]
         # Decode in order
         if self.mode != 'predcls':
-            decoder_inp = PackedSequence(torch.cat((obj_inp_rep, encoder_rep), 1) if self.pass_in_obj_feats_to_decoder else encoder_rep,
-                                         ls_transposed)
+            decoder_inp = PackedSequence(
+                torch.cat((obj_inp_rep, encoder_rep), 1) if self.pass_in_obj_feats_to_decoder else encoder_rep,
+                ls_transposed
+            )
             obj_dists, obj_preds = self.decoder_rnn(
                 decoder_inp, #obj_dists[perm],
                 labels=obj_labels[perm] if obj_labels is not None else None,
@@ -366,7 +372,8 @@ class RelModel(nn.Module):
         else:
             roi_fmap = [
                 Flattener(),
-                load_vgg(use_dropout=False, use_relu=False, use_linear=pooling_dim == 4096, pretrained=False).classifier,
+                load_vgg(use_dropout=False, use_relu=False,
+                         use_linear=pooling_dim == 4096, pretrained=False).classifier,
             ]
             if pooling_dim != 4096:
                 roi_fmap.append(nn.Linear(4096, pooling_dim))
@@ -448,8 +455,8 @@ class RelModel(nn.Module):
         return self.roi_fmap_obj(feature_pool.view(rois.size(0), -1))
 
     def forward(self, x, im_sizes, image_offset,
-                gt_boxes=None, gt_classes=None, gt_rels=None, proposals=None, train_anchor_inds=None,
-                return_fmap=False):
+                gt_boxes=None, gt_classes=None, gt_rels=None, proposals=None,
+                train_anchor_inds=None, return_fmap=False):
         """
         Forward pass for detection
         :param x: Images@[batch_size, 3, IM_SIZE, IM_SIZE]
@@ -494,8 +501,11 @@ class RelModel(nn.Module):
         result.rm_obj_dists, result.obj_preds, edge_ctx = self.context(
             result.obj_fmap,
             result.rm_obj_dists.detach(),
-            im_inds, result.rm_obj_labels if self.training or self.mode == 'predcls' else None,
-            boxes.data, result.boxes_all)
+            im_inds,
+            result.rm_obj_labels if self.training or self.mode == 'predcls' else None,
+            boxes.data,
+            result.boxes_all
+        )
 
         if edge_ctx is None:
             edge_rep = self.post_emb(result.obj_preds)

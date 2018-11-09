@@ -11,6 +11,7 @@ from lib.pytorch_misc import to_variable, nonintersecting_2d_inds
 from collections import defaultdict
 import torch
 
+
 @to_variable
 def rel_assignments(im_inds, rpn_rois, roi_gtlabels, gt_boxes, gt_classes, gt_rels, image_offset,
                     fg_thresh=0.5, num_sample_per_gt=4, filter_non_overlap=True):
@@ -40,7 +41,7 @@ def rel_assignments(im_inds, rpn_rois, roi_gtlabels, gt_boxes, gt_classes, gt_re
     gt_classes_np[:, 0] -= image_offset
     gt_rels_np[:, 0] -= image_offset
 
-    num_im = gt_classes_np[:, 0].max()+1
+    num_im = gt_classes_np[:, 0].max() + 1
 
     # print("Pred inds {} pred boxes {} pred box labels {} gt classes {} gt rels {}".format(
     #     pred_inds_np, pred_boxes_np, pred_boxlabels_np, gt_classes_np, gt_rels_np
@@ -130,9 +131,9 @@ def rel_assignments(im_inds, rpn_rois, roi_gtlabels, gt_boxes, gt_classes, gt_re
 
         # print("GTR {} -> AR {} vs {}".format(gt_rels.shape, fg_rels.shape, bg_rels.shape))
         all_rels_i = np.concatenate((fg_rels, bg_rels), 0)
-        all_rels_i[:,0:2] += num_box_seen
+        all_rels_i[:, 0:2] += num_box_seen
 
-        all_rels_i = all_rels_i[np.lexsort((all_rels_i[:,1], all_rels_i[:,0]))]
+        all_rels_i = all_rels_i[np.lexsort((all_rels_i[:, 1], all_rels_i[:, 0]))]
 
         rel_labels.append(np.column_stack((
             im_ind*np.ones(all_rels_i.shape[0], dtype=np.int64),

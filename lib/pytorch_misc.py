@@ -246,11 +246,13 @@ def intersect_2d(x1, x2):
     res = (x1[..., None] == x2.T[None, ...]).all(1)
     return res
 
+
 def np_to_variable(x, is_cuda=True, dtype=torch.FloatTensor):
     v = Variable(torch.from_numpy(x).type(dtype))
     if is_cuda:
         v = v.cuda()
     return v
+
 
 def gather_nd(x, index):
     """
@@ -267,7 +269,7 @@ def gather_nd(x, index):
 
     sel_inds = index[:,nd-1].clone()
     mult_factor = x.size(nd-1)
-    for col in range(nd-2, -1, -1): # [n-2, n-3, ..., 1, 0]
+    for col in range(nd-2, -1, -1):  # [n-2, n-3, ..., 1, 0]
         sel_inds += index[:,col] * mult_factor
         mult_factor *= x.size(col)
 

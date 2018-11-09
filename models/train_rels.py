@@ -1,6 +1,7 @@
 """
 Training script for scene graph detection. Integrated with my faster rcnn setup
 """
+import _init_paths
 
 from dataloaders.visual_genome import VGDataLoader, VG
 import numpy as np
@@ -136,7 +137,7 @@ def train_batch(b, verbose=False):
     """
     result = detector[b]
 
-    losses = {}
+    losses = dict()
     losses['class_loss'] = F.cross_entropy(result.rm_obj_dists, result.rm_obj_labels)
     losses['rel_loss'] = F.cross_entropy(result.rel_dists, result.rel_labels[:, -1])
     loss = sum(losses.values())
