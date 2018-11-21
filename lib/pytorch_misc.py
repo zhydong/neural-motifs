@@ -366,7 +366,13 @@ def random_choose(tensor, num):
 
 def transpose_packed_sequence_inds(lengths):
     """
-    Goes from a TxB packed sequence to a BxT or vice versa. Assumes that nothing is a variable
+    Goes from a TxB packed sequence to a BxT or vice versa.
+    Assumes that nothing is a variable
+    suppose： batch size 2(2 image in one gpu), image 0 has 12 roi, image 1 has 9 roi:
+    then T*Bformat:
+        [12, 9]
+        B*T format:
+        [2,2,2,2,2,2,2,2,2,1,1,1]
     :param ps: PackedSequence
     :return:
     """

@@ -10,6 +10,7 @@ from lib.word_vectors import obj_edge_vectors
 from .highway_lstm_cuda.alternating_highway_lstm import block_orthogonal
 import numpy as np
 
+
 def get_dropout_mask(dropout_probability: float, tensor_for_masking: torch.autograd.Variable):
     """
     Computes and returns an element-wise dropout mask for a given tensor, where
@@ -163,9 +164,9 @@ class DecoderRNN(torch.nn.Module):
         # We're just doing an LSTM decoder here so ignore states, etc
         if initial_state is None:
             previous_memory = Variable(sequence_tensor.data.new()
-                                                  .resize_(batch_size, self.hidden_size).fill_(0))
+                                       .resize_(batch_size, self.hidden_size).fill_(0))
             previous_state = Variable(sequence_tensor.data.new()
-                                                 .resize_(batch_size, self.hidden_size).fill_(0))
+                                      .resize_(batch_size, self.hidden_size).fill_(0))
         else:
             assert len(initial_state) == 2
             previous_state = initial_state[0].squeeze(0)

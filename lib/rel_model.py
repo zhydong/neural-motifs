@@ -30,6 +30,7 @@ from lib.surgery import filter_dets
 from lib.word_vectors import obj_edge_vectors
 from lib.fpn.roi_align.functions.roi_align import RoIAlignFunction
 
+from IPython import embed
 
 def _sort_by_score(im_inds, scores):
     """
@@ -61,6 +62,7 @@ def _sort_by_score(im_inds, scores):
     perm = perm[inds]
     _, inv_perm = torch.sort(perm)
 
+    embed(header='_sort_by_score before return')
     return perm, inv_perm, ls_transposed
 
 
@@ -122,10 +124,13 @@ class LinearizedContext(nn.Module):
             if self.pass_in_obj_feats_to_decoder:
                 decoder_inputs_dim += self.obj_dim + self.embed_dim
 
-            self.decoder_rnn = DecoderRNN(self.classes, embed_dim=self.embed_dim,
-                                          inputs_dim=decoder_inputs_dim,
-                                          hidden_dim=self.hidden_dim,
-                                          recurrent_dropout_probability=dropout_rate)
+            self.decoder_rnn = DecoderRNN(
+                self.classes,
+                embed_dim=self.embed_dim,
+                inputs_dim=decoder_inputs_dim,
+                hidden_dim=self.hidden_dim,
+                recurrent_dropout_probability=dropout_rate
+            )
         else:
             self.decoder_lin = nn.Linear(self.obj_dim + self.embed_dim + 128, self.num_classes)
 
@@ -201,14 +206,18 @@ class LinearizedContext(nn.Module):
     def obj_ctx(self, obj_feats, obj_dists, im_inds, obj_labels=None, box_priors=None, boxes_per_cls=None):
         """
         Object context and object classification.
-        :param obj_feats: [num_obj, img_dim + object embedding0 dim]
-        :param obj_dists: [num_obj, #classes]
-        :param im_inds: [num_obj] the indices of the images
-        :param obj_labels: [num_obj] the GT labels of the image
-        :param boxes: [num_obj, 4] boxes. We'll use this for NMS
-        :return: obj_dists: [num_obj, #classes] new probability distribution.
-                 obj_preds: argmax of that distribution.
-                 obj_final_ctx: [num_obj, #feats] For later!
+        Args:
+            obj_feats: Variable, Object features
+                with shape of (NumOfRoIs, feature_dim + word_embbeding_dim + pos_embbeding)
+            obj_dists: object class score, with shape of (num_obj, #classes)
+            im_inds: the indices of the images, with shape of (NumOfRoI,)
+            obj_labels: [num_obj] the GT labels of the image
+            box_priors: box coordinates of objects, with shape of (NumOfRoI, 4)
+            boxes_per_cls:
+        Returns:
+            obj_dists: [num_obj, #classes] new probability distribution.
+            obj_preds: argmax of that distribution, with shape of (NumOfClasses,), the exact value of class index
+            encoder_rep: torch.Tensor, encoder feature with shape of (NumOfRoI, biLSTM_dim(512))
         """
         # Sort by the confidence of the maximum detection.
         confidence = F.softmax(obj_dists, dim=1).data[:, 1:].max(1)[0]
@@ -225,10 +234,10 @@ class LinearizedContext(nn.Module):
                 ls_transposed
             )
             obj_dists, obj_preds = self.decoder_rnn(
-                decoder_inp, #obj_dists[perm],
+                decoder_inp,
                 labels=obj_labels[perm] if obj_labels is not None else None,
                 boxes_for_nms=boxes_per_cls[perm] if boxes_per_cls is not None else None,
-                )
+            )
             obj_preds = obj_preds[inv_perm]
             obj_dists = obj_dists[inv_perm]
         else:
@@ -237,6 +246,7 @@ class LinearizedContext(nn.Module):
             obj_dists = Variable(to_onehot(obj_preds.data, self.num_classes))
         encoder_rep = encoder_rep[inv_perm]
 
+        embed(header='rel_model.py obj_ctx before return')
         return obj_dists, obj_preds, encoder_rep
 
     def forward(self, obj_fmaps, obj_logits, im_inds, obj_labels=None, box_priors=None, boxes_per_cls=None):
@@ -525,17 +535,17 @@ class RelModel(nn.Module):
         )
         """
         Results attributes:
-            od_obj_dists=None,
-            rm_obj_dists=None,
-            obj_scores=None
+            od_obj_dists: digits after score_fc in RCNN
+            rm_obj_dists: od_obj_dists after nms
+            obj_scores: nmn 
             obj_preds=None, 
             obj_fmap=None,
             od_box_deltas=None, 
             rm_box_deltas=None,
             od_box_targets=None, 
             rm_box_targets=None, 
-            od_box_priors=None, 
-            rm_box_priors=None,
+            od_box_priors: proposal before nms
+            rm_box_priors: proposal after nms
             boxes_assigned=None, 
             boxes_all=None, 
             od_obj_labels=None, 
@@ -543,11 +553,24 @@ class RelModel(nn.Module):
             rpn_scores=None, 
             rpn_box_deltas=None, 
             rel_labels=None,
-            im_inds=None, 
+            im_inds: image index of every proposals
             fmap=None, 
             rel_dists=None, 
             rel_inds=None, 
             rel_rep=None
+            
+            one example:
+           sgcls task: 
+result.fmap: torch.Size([6, 512, 37, 37])
+result.im_inds: torch.Size([44])
+result.obj_fmap: torch.Size([44, 4096])
+result.od_box_priors: torch.Size([44, 4])
+result.od_obj_dists: torch.Size([44, 151])
+result.od_obj_labels: torch.Size([44])
+result.rel_labels: torch.Size([316, 4])
+result.rm_box_priors: torch.Size([44, 4])
+result.rm_obj_dists: torch.Size([44, 151])
+result.rm_obj_labels: torch.Size([44])
         """
         if result.is_none():
             return ValueError("heck")
@@ -557,8 +580,20 @@ class RelModel(nn.Module):
         im_inds = result.im_inds - image_offset
         boxes = result.rm_box_priors
 
+        #embed(header='rel_model.py before rel_assignments')
         if self.training and result.rel_labels is None:
             assert self.mode == 'sgdet'
+
+            # only in sgdet mode
+
+            # shapes:
+            # im_inds: (box_num,)
+            # boxes: (box_num, 4)
+            # rm_obj_labels: (box_num,)
+            # gt_boxes: (box_num, 4)
+            # gt_classes: (box_num, 2) maybe[im_ind, class_ind]
+            # gt_rels: (rel_num, 4)
+            # image_offset: integer
             result.rel_labels = rel_assignments(
                 im_inds.data,
                 boxes.data,
@@ -570,11 +605,15 @@ class RelModel(nn.Module):
                 filter_non_overlap=True,
                 num_sample_per_gt=1
             )
+        #embed(header='rel_model.py after rel_assignments')
 
+        # rel_labels[:, :3] if sgcls
         rel_inds = self.get_rel_inds(result.rel_labels, im_inds, boxes)
 
         rois = torch.cat((im_inds[:, None].float(), boxes), 1)
 
+        # obj_fmap: (NumOfRoI, 4096)
+        # RoIAlign
         result.obj_fmap = self.obj_feature_map(result.fmap.detach(), rois)
 
         # Prevent gradients from flowing back into score_fc from elsewhere
@@ -620,6 +659,10 @@ class RelModel(nn.Module):
             ), 1))
 
         if self.training:
+            #embed(header='rel_model.py before return')
+            # what will be useful:
+            # rm_obj_dists, rm_obj_labels
+            # rel_labels, rel_dists
             return result
 
         twod_inds = arange(result.obj_preds.data) * self.num_classes + result.obj_preds.data
@@ -633,6 +676,7 @@ class RelModel(nn.Module):
             bboxes = result.rm_box_priors
 
         rel_rep = F.softmax(result.rel_dists, dim=1)
+        #embed(header='rel_model.py before return')
         return filter_dets(bboxes, result.obj_scores,
                            result.obj_preds, rel_inds[:, 1:], rel_rep)
 

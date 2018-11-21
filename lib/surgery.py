@@ -18,6 +18,7 @@ from lib.fpn.box_utils import bbox_overlaps
 # from ad3 import factor_graph as fg
 from time import time
 
+
 def filter_dets(boxes, obj_scores, obj_classes, rel_inds, pred_scores):
     """
     Filters detections....

@@ -149,10 +149,12 @@ def train_batch(b, verbose=False):
     loss.backward()
     clip_grad_norm(
         [(n, p) for n, p in detector.named_parameters() if p.grad is not None],
-        max_norm=conf.clip, verbose=verbose, clip=True)
+        max_norm=conf.clip, verbose=verbose, clip=True
+    )
     losses['total'] = loss
     optimizer.step()
     res = pd.Series({x: y.data[0] for x, y in losses.items()})
+    #embed(header='train_rel.py train_batch before return')
     return res
 
 

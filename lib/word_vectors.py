@@ -7,13 +7,13 @@ import os
 import zipfile
 
 import six
+import sys
 import torch
 from six.moves.urllib.request import urlretrieve
 from tqdm import tqdm
 import os.path as osp
 
 from config import DATA_PATH, WD_DIR
-import sys
 
 
 def obj_edge_vectors(names, wv_type='glove.6B', wv_dir=WD_DIR, wv_dim=300):

@@ -18,6 +18,8 @@ from torchvision.models.vgg import vgg16
 from torchvision.models.resnet import resnet101
 from torch.nn.parallel._functions import Gather
 
+from IPython import embed
+
 
 class Result(object):
     """ little container class for holding the detection result
@@ -289,15 +291,28 @@ class ObjectDetector(nn.Module):
                                   be used to compute the training loss. Each (img_ind, fpn_idx)
         :return: If train:
         """
+        # shape: (batch_size, 512, 37, 37)
         fmap = self.feature_map(x)
 
         # Get boxes from RPN
+        # rois: (NumOfRoIs, 5), [img_ind, x0, x1, y0, y1]
+        # obj_labels: (NumOfRoIs,), object class index
+        # bbox_targets: NoneType in Rel_Model
+        # rpn_scores:NoneType in Rel_Model
+        # rpn_box_deltas:
+        # rel_labels (NumOfRels, 4) [img ind, box0 ind, box1ind, rel type]
+        #   rel_labels is relation labels of every proposal in image
+        #   eg. in this gpu: there are 2 images with 8 proposals and 9 proposals, so
+        #   rel_labels first dimension size is 8*(8-1)+9*(9-1) = 56+72 = 128
+        #   the proposal numbers can be inferred from `rois`
         rois, obj_labels, bbox_targets, rpn_scores, rpn_box_deltas, rel_labels = \
             self.get_boxes(fmap, im_sizes, image_offset, gt_boxes,
                            gt_classes, gt_rels, train_anchor_inds, proposals=proposals)
 
         # Now classify them
+        # obj_fmap: (NumOfRoI, 4096)
         obj_fmap = self.obj_feature_map(fmap, rois)
+        # od_obj_dists: (NumOfRoI, NumOfClasses)
         od_obj_dists = self.score_fc(obj_fmap)
         od_box_deltas = self.bbox_fc(obj_fmap).view(
             -1, len(self.classes), 4) if self.mode != 'gtbox' else None
@@ -336,6 +351,7 @@ class ObjectDetector(nn.Module):
             rm_obj_labels = obj_labels
             box_deltas = od_box_deltas
             obj_dists = od_obj_dists
+        #embed(header='object_detector.py before return')
 
         return Result(
             od_obj_dists=od_obj_dists,

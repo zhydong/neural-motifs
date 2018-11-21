@@ -6,8 +6,6 @@ __pycache__/
 # C extensions
 *.so
 
-*.swp
-*/*/*/*.swp
 
 # Distribution / packaging
 .Python

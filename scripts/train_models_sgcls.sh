@@ -15,10 +15,8 @@ elif [ $1 == "1" ]; then
     -ckpt checkpoints/vgdet/vg-24.tar -save_dir checkpoints/stanford2
 elif [ $1 == "2" ]; then
     echo "TRAINING MOTIFNET"
-    python models/train_rels.py -m sgcls -model motifnet -order leftright -nl_obj 2 -nl_edge 4 -b 6 -clip 5 \
+    python models/train_rels.py -m sgcls -model motifnet -order leftright -nl_obj 2 -nl_edge 4 -b 2 -clip 5 \
         -p 100 -hidden_dim 512 -pooling_dim 4096 -lr 1e-3 -ngpu 1 -ckpt checkpoints/motifnet2/vgrel-9.tar \
         -save_dir checkpoints/motifnet2 -nepoch 50 -use_bias
 fi
-
-
 
