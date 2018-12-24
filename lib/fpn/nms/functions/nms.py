@@ -4,16 +4,20 @@ import numpy as np
 from .._ext import nms
 
 
-def apply_nms(scores, boxes,  pre_nms_topn=12000, post_nms_topn=2000, boxes_per_im=None,
-              nms_thresh=0.7):
-    """
-    Note - this function is non-differentiable so everything is assumed to be a tensor, not
+def apply_nms(
+        scores,
+        boxes,
+        pre_nms_topn=12000,
+        post_nms_topn=2000,
+        boxes_per_im=None,
+        nms_thresh=0.7
+):
+    """Note - this function is non-differentiable so everything is assumed to be a tensor, not
     a variable.
-        """
+    """
     just_inds = boxes_per_im is None
     if boxes_per_im is None:
         boxes_per_im = [boxes.size(0)]
-
 
     s = 0
     keep = []
@@ -23,7 +27,6 @@ def apply_nms(scores, boxes,  pre_nms_topn=12000, post_nms_topn=2000, boxes_per_
         keep_im = _nms_single_im(scores[s:e], boxes[s:e], pre_nms_topn, post_nms_topn, nms_thresh)
         keep.append(keep_im + s)
         im_per.append(keep_im.size(0))
-
         s = e
 
     inds = torch.cat(keep, 0)

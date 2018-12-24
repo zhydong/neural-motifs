@@ -119,8 +119,11 @@ def train_batch(b):
     box_reg_mult = 2 * (1. / FG_FRACTION) * fg_cnt / (fg_cnt + bg_cnt + 1e-4)
     twod_inds = valid_inds * box_deltas.size(1) + labels[valid_inds].data
 
-    box_loss = bbox_loss(roi_boxes[valid_inds], box_deltas.view(-1, 4)[twod_inds],
-                         bbox_targets[valid_inds]) * box_reg_mult
+    box_loss = bbox_loss(
+        roi_boxes[valid_inds],
+        box_deltas.view(-1, 4)[twod_inds],
+        bbox_targets[valid_inds]
+    ) * box_reg_mult
 
     loss = class_loss + box_loss
 
@@ -138,9 +141,11 @@ def train_batch(b):
         #     train_valid_inds.size(0), train_anchor_labels.size(0)-train_valid_inds.size(0),
         #     train_valid_inds.size(0) / (train_anchor_labels.size(0) + 1e-4), RPN_FG_FRACTION), flush=True)
         rpn_box_mult = 2 * (1. / RPN_FG_FRACTION) * train_valid_inds.size(0) / (train_anchor_labels.size(0) + 1e-4)
-        rpn_box_loss = bbox_loss(train_anchors[train_valid_inds],
-                                 rpn_box_deltas[train_valid_inds],
-                                 train_anchor_targets[train_valid_inds]) * rpn_box_mult
+        rpn_box_loss = bbox_loss(
+            train_anchors[train_valid_inds],
+            rpn_box_deltas[train_valid_inds],
+            train_anchor_targets[train_valid_inds]
+        ) * rpn_box_mult
 
         loss += rpn_class_loss + rpn_box_loss
         res = pd.Series([rpn_class_loss.data[0], rpn_box_loss.data[0],

@@ -1,6 +1,9 @@
+
+import torch
+
+
 from lib.pytorch_misc import enumerate_by_image, gather_nd, random_choose
 from lib.fpn.box_utils import bbox_preds, center_size, bbox_overlaps
-import torch
 from lib.pytorch_misc import diagonal_inds, to_variable
 from config import RELS_PER_IMG, REL_FG_FRACTION
 
@@ -76,12 +79,12 @@ def proposal_assignments_gtbox(rois, gt_boxes, gt_classes, gt_rels, image_offset
     else:
         rel_labels = fg_rels
 
-
     # last sort by rel.
-    _, perm = torch.sort(rel_labels[:, 0]*(gt_boxes.size(0)**2) +
-                         rel_labels[:,1]*gt_boxes.size(0) + rel_labels[:,2])
+    _, perm = torch.sort(
+        rel_labels[:, 0]*(gt_boxes.size(0)**2) +
+        rel_labels[:, 1]*gt_boxes.size(0) + rel_labels[:, 2])
 
     rel_labels = rel_labels[perm].contiguous()
 
-    labels = gt_classes[:,1].contiguous()
+    labels = gt_classes[:, 1].contiguous()
     return rois, labels, rel_labels

@@ -29,8 +29,8 @@ def block_orthogonal(tensor, split_sizes, gain=1.0):
     """
 
     if isinstance(tensor, Variable):
-        block_orthogonal(tensor.data, split_sizes, gain)
-        return tensor
+       block_orthogonal(tensor.data, split_sizes, gain)
+       return tensor
 
     sizes = list(tensor.size())
     if any([a % b != 0 for a, b in zip(sizes, split_sizes)]):

@@ -46,7 +46,6 @@ class RelModelStanford(RelModel):
         self.obj_unary = nn.Linear(self.obj_dim, SIZE)
         self.edge_unary = nn.Linear(4096, SIZE)
 
-
         self.edge_gru = nn.GRUCell(input_size=SIZE, hidden_size=SIZE)
         self.node_gru = nn.GRUCell(input_size=SIZE, hidden_size=SIZE)
 
@@ -96,10 +95,8 @@ class RelModelStanford(RelModel):
             edge_factor.append(self.edge_gru(weighted_sub + weighted_obj, edge_factor[i]))
 
             # Compute vertex context
-            pre_out = self.out_edge_w_fc(torch.cat((sub_vert, edge_factor[i]), 1)) * \
-                      edge_factor[i]
-            pre_in = self.in_edge_w_fc(torch.cat((obj_vert, edge_factor[i]), 1)) * edge_factor[
-                i]
+            pre_out = self.out_edge_w_fc(torch.cat((sub_vert, edge_factor[i]), 1)) * edge_factor[i]
+            pre_in = self.in_edge_w_fc(torch.cat((obj_vert, edge_factor[i]), 1)) * edge_factor[i]
 
             vert_ctx = objs_to_outrels @ pre_out + objs_to_inrels @ pre_in
             vert_factor.append(self.node_gru(vert_ctx, vert_factor[i]))
@@ -166,15 +163,17 @@ class RelModelStanford(RelModel):
             result.obj_scores = result.rm_obj_dists.data.new(gt_classes.size(0)).fill_(1)
             result.obj_preds = gt_classes.data[:, 1]
         elif self.mode == 'sgdet':
-            order, obj_scores, obj_preds= filter_det(F.softmax(result.rm_obj_dists),
-                                                              result.boxes_all,
-                                                              start_ind=0,
-                                                              max_per_img=100,
-                                                              thresh=0.00,
-                                                              pre_nms_topn=6000,
-                                                              post_nms_topn=300,
-                                                              nms_thresh=0.3,
-                                                              nms_filter_duplicates=True)
+            order, obj_scores, obj_preds = filter_det(
+                F.softmax(result.rm_obj_dists),
+                result.boxes_all,
+                start_ind=0,
+                max_per_img=100,
+                thresh=0.00,
+                pre_nms_topn=6000,
+                post_nms_topn=300,
+                nms_thresh=0.3,
+                nms_filter_duplicates=True
+            )
             idx, perm = torch.sort(order)
             result.obj_preds = rel_inds.new(result.rm_obj_dists.size(0)).fill_(1)
             result.obj_scores = result.rm_obj_dists.data.new(result.rm_obj_dists.size(0)).fill_(0)

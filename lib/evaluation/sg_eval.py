@@ -6,7 +6,9 @@ from functools import reduce
 from lib.pytorch_misc import intersect_2d, argsort_desc
 from lib.fpn.box_intersections_cpu.bbox import bbox_overlaps
 from config import MODES
+from IPython import embed
 np.set_printoptions(precision=3)
+
 
 class BasicSceneGraphEvaluator:
     def __init__(self, mode, multiple_preds=False):
@@ -14,6 +16,11 @@ class BasicSceneGraphEvaluator:
         self.mode = mode
         self.result_dict[self.mode + '_recall'] = {20: [], 50: [], 100: []}
         self.multiple_preds = multiple_preds
+        self.cls_recall_dict = {
+            20: {i: 0 for i in range(1, 51)},
+            50: {i: 0 for i in range(1, 51)},
+            100: {i: 0 for i in range(1, 51)}
+        }
 
     @classmethod
     def all_modes(cls, **kwargs):
@@ -26,8 +33,15 @@ class BasicSceneGraphEvaluator:
         return evaluators
 
     def evaluate_scene_graph_entry(self, gt_entry, pred_scores, viz_dict=None, iou_thresh=0.5):
-        res = evaluate_from_dict(gt_entry, pred_scores, self.mode, self.result_dict,
-                                  viz_dict=viz_dict, iou_thresh=iou_thresh, multiple_preds=self.multiple_preds)
+        res = self.evaluate_from_dict(
+            gt_entry,
+            pred_scores,
+            self.mode,
+            self.result_dict,
+            viz_dict=viz_dict,
+            iou_thresh=iou_thresh,
+            multiple_preds=self.multiple_preds
+        )
         # self.print_stats()
         return res
 
@@ -39,111 +53,128 @@ class BasicSceneGraphEvaluator:
         for k, v in self.result_dict[self.mode + '_recall'].items():
             print('R@%i: %f' % (k, np.mean(v)))
 
+    def evaluate_from_dict(
+            self,
+            gt_entry,
+            pred_entry,
+            mode,
+            result_dict,
+            multiple_preds=False,
+            viz_dict=None,
+            **kwargs
+    ):
+        """
+        Shortcut to doing evaluate_recall from dict
+        :param gt_entry: Dictionary containing gt_relations, gt_boxes, gt_classes
+        :param pred_entry: Dictionary containing pred_rels, pred_boxes (if detection), pred_classes
+        :param mode: 'det' or 'cls'
+        :param result_dict:
+        :param multiple_preds:
+        :param viz_dict:
+        :param kwargs:
+        :return:
+        """
+        gt_rels = gt_entry['gt_relations']
+        gt_boxes = gt_entry['gt_boxes'].astype(float)
+        gt_classes = gt_entry['gt_classes']
 
-def evaluate_from_dict(gt_entry, pred_entry, mode, result_dict, multiple_preds=False,
-                       viz_dict=None, **kwargs):
-    """
-    Shortcut to doing evaluate_recall from dict
-    :param gt_entry: Dictionary containing gt_relations, gt_boxes, gt_classes
-    :param pred_entry: Dictionary containing pred_rels, pred_boxes (if detection), pred_classes
-    :param mode: 'det' or 'cls'
-    :param result_dict: 
-    :param viz_dict: 
-    :param kwargs: 
-    :return: 
-    """
-    gt_rels = gt_entry['gt_relations']
-    gt_boxes = gt_entry['gt_boxes'].astype(float)
-    gt_classes = gt_entry['gt_classes']
+        pred_rel_inds = pred_entry['pred_rel_inds']
+        rel_scores = pred_entry['rel_scores']
 
-    pred_rel_inds = pred_entry['pred_rel_inds']
-    rel_scores = pred_entry['rel_scores']
+        if mode == 'predcls':
+            pred_boxes = gt_boxes
+            pred_classes = gt_classes
+            obj_scores = np.ones(gt_classes.shape[0])
+        elif mode == 'sgcls':
+            pred_boxes = gt_boxes
+            pred_classes = pred_entry['pred_classes']
+            obj_scores = pred_entry['obj_scores']
+        elif mode == 'sgdet' or mode == 'phrdet':
+            pred_boxes = pred_entry['pred_boxes'].astype(float)
+            pred_classes = pred_entry['pred_classes']
+            obj_scores = pred_entry['obj_scores']
+        elif mode == 'preddet':
+            # Only extract the indices that appear in GT
+            prc = intersect_2d(pred_rel_inds, gt_rels[:, :2])
+            if prc.size == 0:
+                for k in result_dict[mode + '_recall']:
+                    result_dict[mode + '_recall'][k].append(0.0)
+                return None, None, None
+            pred_inds_per_gt = prc.argmax(0)
+            pred_rel_inds = pred_rel_inds[pred_inds_per_gt]
+            rel_scores = rel_scores[pred_inds_per_gt]
 
-    if mode == 'predcls':
-        pred_boxes = gt_boxes
-        pred_classes = gt_classes
-        obj_scores = np.ones(gt_classes.shape[0])
-    elif mode == 'sgcls':
-        pred_boxes = gt_boxes
-        pred_classes = pred_entry['pred_classes']
-        obj_scores = pred_entry['obj_scores']
-    elif mode == 'sgdet' or mode == 'phrdet':
-        pred_boxes = pred_entry['pred_boxes'].astype(float)
-        pred_classes = pred_entry['pred_classes']
-        obj_scores = pred_entry['obj_scores']
-    elif mode == 'preddet':
-        # Only extract the indices that appear in GT
-        prc = intersect_2d(pred_rel_inds, gt_rels[:, :2])
-        if prc.size == 0:
+            # Now sort the matching ones
+            rel_scores_sorted = argsort_desc(rel_scores[:,1:])
+            rel_scores_sorted[:, 1] += 1
+            rel_scores_sorted = np.column_stack((pred_rel_inds[rel_scores_sorted[:,0]], rel_scores_sorted[:,1]))
+
+            matches = intersect_2d(rel_scores_sorted, gt_rels)
             for k in result_dict[mode + '_recall']:
-                result_dict[mode + '_recall'][k].append(0.0)
+                rec_i = float(matches[:k].any(0).sum()) / float(gt_rels.shape[0])
+                result_dict[mode + '_recall'][k].append(rec_i)
             return None, None, None
-        pred_inds_per_gt = prc.argmax(0)
-        pred_rel_inds = pred_rel_inds[pred_inds_per_gt]
-        rel_scores = rel_scores[pred_inds_per_gt]
+        else:
+            raise ValueError('invalid mode')
 
-        # Now sort the matching ones
-        rel_scores_sorted = argsort_desc(rel_scores[:,1:])
-        rel_scores_sorted[:,1] += 1
-        rel_scores_sorted = np.column_stack((pred_rel_inds[rel_scores_sorted[:,0]], rel_scores_sorted[:,1]))
+        if multiple_preds:
+            obj_scores_per_rel = obj_scores[pred_rel_inds].prod(1)
+            overall_scores = obj_scores_per_rel[:, None] * rel_scores[:,1:]
+            score_inds = argsort_desc(overall_scores)[:100]
+            pred_rels = np.column_stack((pred_rel_inds[score_inds[:, 0]], score_inds[:, 1]+1))
+            predicate_scores = rel_scores[score_inds[:, 0], score_inds[:, 1]+1]
+        else:
+            pred_rels = np.column_stack((pred_rel_inds, 1+rel_scores[:,1:].argmax(1)))
+            predicate_scores = rel_scores[:, 1:].max(1)
 
-        matches = intersect_2d(rel_scores_sorted, gt_rels)
+        pred_to_gt, pred_5ples, rel_scores = evaluate_recall(
+                    gt_rels, gt_boxes, gt_classes,
+                    pred_rels, pred_boxes, pred_classes,
+                    predicate_scores, obj_scores, phrdet=mode=='phrdet',
+                    **kwargs)
+
         for k in result_dict[mode + '_recall']:
-            rec_i = float(matches[:k].any(0).sum()) / float(gt_rels.shape[0])
+
+            # compute matches
+            match = reduce(np.union1d, pred_to_gt[:k])
+
+            if isinstance(match, list):
+                match = np.array(match)
+
+            for cls_ind in gt_rels[match.astype('int')][:, -1]:
+                self.cls_recall_dict[k][cls_ind] += 1
+
+            # compute match/all_ground truth
+            rec_i = float(len(match)) / float(gt_rels.shape[0])
             result_dict[mode + '_recall'][k].append(rec_i)
-        return None, None, None
-    else:
-        raise ValueError('invalid mode')
+        #embed(header='sg_eval.py eval_dict')
+        return pred_to_gt, pred_5ples, rel_scores
 
-    if multiple_preds:
-        obj_scores_per_rel = obj_scores[pred_rel_inds].prod(1)
-        overall_scores = obj_scores_per_rel[:,None] * rel_scores[:,1:]
-        score_inds = argsort_desc(overall_scores)[:100]
-        pred_rels = np.column_stack((pred_rel_inds[score_inds[:,0]], score_inds[:,1]+1))
-        predicate_scores = rel_scores[score_inds[:,0], score_inds[:,1]+1]
-    else:
-        pred_rels = np.column_stack((pred_rel_inds, 1+rel_scores[:,1:].argmax(1)))
-        predicate_scores = rel_scores[:,1:].max(1)
-
-    pred_to_gt, pred_5ples, rel_scores = evaluate_recall(
-                gt_rels, gt_boxes, gt_classes,
-                pred_rels, pred_boxes, pred_classes,
-                predicate_scores, obj_scores, phrdet= mode=='phrdet',
-                **kwargs)
-
-    for k in result_dict[mode + '_recall']:
-
-        match = reduce(np.union1d, pred_to_gt[:k])
-
-        rec_i = float(len(match)) / float(gt_rels.shape[0])
-        result_dict[mode + '_recall'][k].append(rec_i)
-    return pred_to_gt, pred_5ples, rel_scores
-
-    # print(" ".join(["R@{:2d}: {:.3f}".format(k, v[-1]) for k, v in result_dict[mode + '_recall'].items()]))
-    # Deal with visualization later
-    # # Optionally, log things to a separate dictionary
-    # if viz_dict is not None:
-    #     # Caution: pred scores has changed (we took off the 0 class)
-    #     gt_rels_scores = pred_scores[
-    #         gt_rels[:, 0],
-    #         gt_rels[:, 1],
-    #         gt_rels[:, 2] - 1,
-    #     ]
-    #     # gt_rels_scores_cls = gt_rels_scores * pred_class_scores[
-    #     #         gt_rels[:, 0]] * pred_class_scores[gt_rels[:, 1]]
-    #
-    #     viz_dict[mode + '_pred_rels'] = pred_5ples.tolist()
-    #     viz_dict[mode + '_pred_rels_scores'] = max_pred_scores.tolist()
-    #     viz_dict[mode + '_pred_rels_scores_cls'] = max_rel_scores.tolist()
-    #     viz_dict[mode + '_gt_rels_scores'] = gt_rels_scores.tolist()
-    #     viz_dict[mode + '_gt_rels_scores_cls'] = gt_rels_scores_cls.tolist()
-    #
-    #     # Serialize pred2gt matching as a list of lists, where each sublist is of the form
-    #     # pred_ind, gt_ind1, gt_ind2, ....
-    #     viz_dict[mode + '_pred2gt_rel'] = pred_to_gt
+        # print(" ".join(["R@{:2d}: {:.3f}".format(k, v[-1]) for k, v in result_dict[mode + '_recall'].items()]))
+        # Deal with visualization later
+        # # Optionally, log things to a separate dictionary
+        # if viz_dict is not None:
+        #     # Caution: pred scores has changed (we took off the 0 class)
+        #     gt_rels_scores = pred_scores[
+        #         gt_rels[:, 0],
+        #         gt_rels[:, 1],
+        #         gt_rels[:, 2] - 1,
+        #     ]
+        #     # gt_rels_scores_cls = gt_rels_scores * pred_class_scores[
+        #     #         gt_rels[:, 0]] * pred_class_scores[gt_rels[:, 1]]
+        #
+        #     viz_dict[mode + '_pred_rels'] = pred_5ples.tolist()
+        #     viz_dict[mode + '_pred_rels_scores'] = max_pred_scores.tolist()
+        #     viz_dict[mode + '_pred_rels_scores_cls'] = max_rel_scores.tolist()
+        #     viz_dict[mode + '_gt_rels_scores'] = gt_rels_scores.tolist()
+        #     viz_dict[mode + '_gt_rels_scores_cls'] = gt_rels_scores_cls.tolist()
+        #
+        #     # Serialize pred2gt matching as a list of lists, where each sublist is of the form
+        #     # pred_ind, gt_ind1, gt_ind2, ....
+        #     viz_dict[mode + '_pred2gt_rel'] = pred_to_gt
 
 
-###########################
+    ###########################
 def evaluate_recall(gt_rels, gt_boxes, gt_classes,
                     pred_rels, pred_boxes, pred_classes, rel_scores=None, cls_scores=None,
                     iou_thresh=0.5, phrdet=False):
@@ -180,7 +211,7 @@ def evaluate_recall(gt_rels, gt_boxes, gt_classes,
     assert np.all(pred_rels[:,2] > 0)
 
     pred_triplets, pred_triplet_boxes, relation_scores = \
-        _triplet(pred_rels[:,2], pred_rels[:,:2], pred_classes, pred_boxes,
+        _triplet(pred_rels[:, 2], pred_rels[:, :2], pred_classes, pred_boxes,
                  rel_scores, cls_scores)
 
     scores_overall = relation_scores.prod(1)
@@ -189,6 +220,10 @@ def evaluate_recall(gt_rels, gt_boxes, gt_classes,
         # raise ValueError("Somehow the relations werent sorted properly")
 
     # Compute recall. It's most efficient to match once and then do recall after
+    # (72, 5), the pred_to_gt
+    # pred_to_gt is a list of len 72
+    # pred_to_gt[i] = [g1, g2, ...] each of pred_to_gt is a list of gt index
+    # this means the ith predication matches g1, g2,.. groud truth relation
     pred_to_gt = _compute_pred_matches(
         gt_triplets,
         pred_triplets,
@@ -203,6 +238,7 @@ def evaluate_recall(gt_rels, gt_boxes, gt_classes,
         pred_rels[:,:2],
         pred_triplets[:, [0, 2, 1]],
     ))
+    #embed(header='sg_eval.py eval_recal')
 
     return pred_to_gt, pred_5ples, relation_scores
 
@@ -227,7 +263,10 @@ def _triplet(predicates, relations, classes, boxes,
 
     sub_ob_classes = classes[relations[:, :2]]
     triplets = np.column_stack((sub_ob_classes[:, 0], predicates, sub_ob_classes[:, 1]))
-    triplet_boxes = np.column_stack((boxes[relations[:, 0]], boxes[relations[:, 1]]))
+    try:
+        triplet_boxes = np.column_stack((boxes[relations[:, 0]], boxes[relations[:, 1]]))
+    except:
+        embed(header='fuck in sg_eval')
 
     triplet_scores = None
     if predicate_scores is not None and class_scores is not None:
@@ -250,11 +289,15 @@ def _compute_pred_matches(gt_triplets, pred_triplets,
     :param gt_boxes: 
     :param pred_boxes: 
     :param iou_thresh: 
-    :return: 
+    :return:
+        pred_to_gt: (NumOfPredRels, list) list of list,
+            each pred_to_gt[i] means the i-th predication boxes matching gt rel list
+            e.g. pred_to_gt[0] = [1, 2] means the 0-th pred rels match the 1 and 2 ground truth relation
     """
     # This performs a matrix multiplication-esque thing between the two arrays
     # Instead of summing, we want the equality, so we reduce in that way
     # The rows correspond to GT triplets, columns to pred triplets
+    # keeps: (NumOfGTRels, NumOfPredRels) boolean
     keeps = intersect_2d(gt_triplets, pred_triplets)
     gt_has_match = keeps.any(1)
     pred_to_gt = [[] for x in range(pred_boxes.shape[0])]
@@ -279,6 +322,6 @@ def _compute_pred_matches(gt_triplets, pred_triplets,
 
             inds = (sub_iou >= iou_thresh) & (obj_iou >= iou_thresh)
 
-        for i in np.where(keep_inds)[0][inds]:
+        for i in np.where(keep_inds)[0][inds]:  # for each matched pred_boxes
             pred_to_gt[i].append(int(gt_ind))
     return pred_to_gt

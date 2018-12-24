@@ -25,13 +25,34 @@ class Result(object):
     """ little container class for holding the detection result
         od: object detector, rm: rel model"""
 
-    def __init__(self, od_obj_dists=None, rm_obj_dists=None,
-                 obj_scores=None, obj_preds=None, obj_fmap=None,
-                 od_box_deltas=None, rm_box_deltas=None,
-                 od_box_targets=None, rm_box_targets=None, od_box_priors=None, rm_box_priors=None,
-                 boxes_assigned=None, boxes_all=None, od_obj_labels=None, rm_obj_labels=None,
-                 rpn_scores=None, rpn_box_deltas=None, rel_labels=None,
-                 im_inds=None, fmap=None, rel_dists=None, rel_inds=None, rel_rep=None):
+    def __init__(
+            self,
+            od_obj_dists=None,
+            rm_obj_dists=None,
+            obj_scores=None,
+            obj_preds=None,
+            obj_fmap=None,
+            od_box_deltas=None,
+            rm_box_deltas=None,
+            od_box_targets=None,
+            rm_box_targets=None,
+            od_box_priors=None,
+            rm_box_priors=None,
+            boxes_assigned=None,
+            boxes_all=None,
+            od_obj_labels=None,
+            rm_obj_labels=None,
+            rpn_scores=None,
+            rpn_box_deltas=None,
+            rel_labels=None,
+            im_inds=None,
+            fmap=None,
+            rel_dists=None,
+            rel_inds=None,
+            rel_rep=None,
+            rel_pn_dists=None,
+            rel_pn_labels=None
+    ):
         self.__dict__.update(locals())
         del self.__dict__['self']
 
@@ -44,8 +65,11 @@ def gather_res(outputs, target_device, dim=0):
     Assuming the signatures are the same accross results!
     """
     out = outputs[0]
-    args = {field: Gather.apply(target_device, dim, *[getattr(o, field) for o in outputs])
-            for field, v in out.__dict__.items() if v is not None}
+    args = {
+        field:
+            Gather.apply(target_device, dim, *[getattr(o, field) for o in outputs])
+        for field, v in out.__dict__.items() if v is not None
+    }
     return type(out)(**args)
 
 
@@ -154,7 +178,9 @@ class ObjectDetector(nn.Module):
         """
         rpn_feats = self.rpn_head(fmap)
         rois = self.rpn_head.roi_proposals(
-            rpn_feats, im_sizes, nms_thresh=0.7,
+            rpn_feats,
+            im_sizes,
+            nms_thresh=0.7,
             pre_nms_topn=12000 if self.training and self.mode == 'rpntrain' else 6000,
             post_nms_topn=2000 if self.training and self.mode == 'rpntrain' else 1000,
         )
@@ -162,8 +188,11 @@ class ObjectDetector(nn.Module):
             if gt_boxes is None or gt_classes is None or train_anchor_inds is None:
                 raise ValueError(
                     "Must supply GT boxes, GT classes, trainanchors when in train mode")
-            rpn_scores, rpn_box_deltas = self.rpn_head.anchor_preds(rpn_feats, train_anchor_inds,
-                                                                    image_offset)
+            rpn_scores, rpn_box_deltas = self.rpn_head.anchor_preds(
+                rpn_feats,
+                train_anchor_inds,
+                image_offset
+            )
 
             if gt_rels is not None and self.mode == 'rpntrain':
                 raise ValueError("Training the object detector and the relationship model with detection"
@@ -186,7 +215,12 @@ class ObjectDetector(nn.Module):
                 rel_labels = None
             else:
                 all_rois, labels, bbox_targets = proposal_assignments_det(
-                    rois, gt_boxes.data, gt_classes.data, image_offset, fg_thresh=0.5)
+                    rois,
+                    gt_boxes.data,
+                    gt_classes.data,
+                    image_offset,
+                    fg_thresh=0.5
+                )
                 rel_labels = None
 
         else:
@@ -323,7 +357,8 @@ class ObjectDetector(nn.Module):
             nms_inds, nms_scores, nms_preds, nms_boxes_assign, nms_boxes, nms_imgs = self.nms_boxes(
                 od_obj_dists,
                 rois,
-                od_box_deltas, im_sizes,
+                od_box_deltas,
+                im_sizes,
             )
             im_inds = nms_imgs + image_offset
             obj_dists = od_obj_dists[nms_inds]
@@ -519,15 +554,15 @@ class RPNHead(nn.Module):
         self.conv = nn.Sequential(
             nn.Conv2d(input_dim, dim, kernel_size=3, padding=1),
             nn.ReLU6(inplace=True),  # Tensorflow docs use Relu6, so let's use it too....
-            nn.Conv2d(dim, self.anchor_target_dim * self._A,
-                      kernel_size=1)
+            nn.Conv2d(dim, self.anchor_target_dim * self._A, kernel_size=1)
         )
 
-        ans_np = generate_anchors(base_size=ANCHOR_SIZE,
-                                  feat_stride=self.stride,
-                                  anchor_scales=ANCHOR_SCALES,
-                                  anchor_ratios=ANCHOR_RATIOS,
-                                  )
+        ans_np = generate_anchors(
+            base_size=ANCHOR_SIZE,
+            feat_stride=self.stride,
+            anchor_scales=ANCHOR_SCALES,
+            anchor_ratios=ANCHOR_RATIOS,
+        )
         self.register_buffer('anchors', torch.FloatTensor(ans_np))
 
     @property
@@ -587,8 +622,9 @@ class RPNHead(nn.Module):
         box_fmap = fmap[:, :, :, :, 2:].data.contiguous()
 
         anchor_stacked = torch.cat([self.anchors[None]] * fmap.size(0), 0)
-        box_preds = bbox_preds(anchor_stacked.view(-1, 4), box_fmap.view(-1, 4)).view(
-            *box_fmap.size())
+        box_preds = bbox_preds(
+            anchor_stacked.view(-1, 4), box_fmap.view(-1, 4)
+        ).view(*box_fmap.size())
 
         for i, (h, w, scale) in enumerate(im_sizes):
             # Zero out all the bad boxes h, w, A, 4
@@ -607,13 +643,24 @@ class RPNHead(nn.Module):
 
         sizes = center_size(box_preds.view(-1, 4))
         class_preds.view(-1)[(sizes[:, 2] < 4) | (sizes[:, 3] < 4)] = -0.01
-        return filter_roi_proposals(box_preds.view(-1, 4), class_preds.view(-1),
-                                    boxes_per_im=np.array([np.prod(box_preds.size()[1:-1])] * fmap.size(0)),
-                                    nms_thresh=nms_thresh,
-                                    pre_nms_topn=pre_nms_topn, post_nms_topn=post_nms_topn)
+        return filter_roi_proposals(
+            box_preds.view(-1, 4),
+            class_preds.view(-1),
+            boxes_per_im=np.array([np.prod(box_preds.size()[1:-1])] * fmap.size(0)),
+            nms_thresh=nms_thresh,
+            pre_nms_topn=pre_nms_topn,
+            post_nms_topn=post_nms_topn
+        )
 
 
-def filter_roi_proposals(box_preds, class_preds, boxes_per_im, nms_thresh=0.7, pre_nms_topn=12000, post_nms_topn=2000):
+def filter_roi_proposals(
+        box_preds,
+        class_preds,
+        boxes_per_im,
+        nms_thresh=0.7,
+        pre_nms_topn=12000,
+        post_nms_topn=2000
+):
     inds, im_per = apply_nms(
         class_preds,
         box_preds,
@@ -622,8 +669,9 @@ def filter_roi_proposals(box_preds, class_preds, boxes_per_im, nms_thresh=0.7, p
         boxes_per_im=boxes_per_im,
         nms_thresh=nms_thresh,
     )
-    img_inds = torch.cat([val * torch.ones(i) for val, i in enumerate(im_per)], 0).cuda(
-        box_preds.get_device())
+    img_inds = torch.cat(
+        [val * torch.ones(i) for val, i in enumerate(im_per)], 0
+    ).cuda(box_preds.get_device())
     rois = torch.cat((img_inds[:, None], box_preds[inds]), 1)
     return rois
 

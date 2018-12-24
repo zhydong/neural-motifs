@@ -57,12 +57,15 @@ REL_FG_FRACTION = 0.25
 RELS_PER_IMG = 256
 
 RELS_PER_IMG_REFINE = 64
+# Total number of rels
+RELEVANT_PER_IM = 5
+EDGES_PER_IM = 10
 
 BATCHNORM_MOMENTUM = 0.01
 ANCHOR_SIZE = 16
 
-ANCHOR_RATIOS = (0.23232838, 0.63365731, 1.28478321, 3.15089189) #(0.5, 1, 2)
-ANCHOR_SCALES = (2.22152954, 4.12315647, 7.21692515, 12.60263013, 22.7102731) #(4, 8, 16, 32)
+ANCHOR_RATIOS = (0.23232838, 0.63365731, 1.28478321, 3.15089189)  # (0.5, 1, 2)
+ANCHOR_SCALES = (2.22152954, 4.12315647, 7.21692515, 12.60263013, 22.7102731)  # (4, 8, 16, 32)
 
 
 class ModelConfig(object):
@@ -138,7 +141,7 @@ class ModelConfig(object):
         if self.mode not in MODES:
             raise ValueError("Invalid mode: mode must be in {}".format(MODES))
 
-        if self.model not in ('motifnet', 'stanford'):
+        if self.model not in ('motifnet', 'stanford', 'fcknet'):
             raise ValueError("Invalid model {}".format(self.model))
 
         if self.ckpt is not None and not os.path.exists(self.ckpt):

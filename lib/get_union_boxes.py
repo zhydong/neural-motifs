@@ -30,13 +30,13 @@ class UnionBoxesAndFeats(Module):
         self.use_feats = use_feats
 
         self.conv = nn.Sequential(
-            nn.Conv2d(2, dim //2, kernel_size=7, stride=2, padding=3, bias=True),
-            nn.ReLU(inplace=True),
+            nn.Conv2d(2, dim // 2, kernel_size=7, stride=2, padding=3, bias=True),
             nn.BatchNorm2d(dim//2, momentum=BATCHNORM_MOMENTUM),
+            nn.ReLU(inplace=True),
             nn.MaxPool2d(kernel_size=3, stride=2, padding=1),
             nn.Conv2d(dim // 2, dim, kernel_size=3, stride=1, padding=1, bias=True),
-            nn.ReLU(inplace=True),
             nn.BatchNorm2d(dim, momentum=BATCHNORM_MOMENTUM),
+            nn.ReLU(inplace=True),
         )
         self.concat = concat
 
@@ -84,13 +84,14 @@ def union_boxes(fmap, rois, union_inds, pooling_size=14, stride=16):
     im_inds = rois[:,0][union_inds[:,0]]
     assert (im_inds.data == rois.data[:,0][union_inds[:,1]]).sum() == union_inds.size(0)
     union_rois = torch.cat((
-        im_inds[:,None],
+        im_inds[:, None],
         torch.min(rois[:, 1:3][union_inds[:, 0]], rois[:, 1:3][union_inds[:, 1]]),
         torch.max(rois[:, 3:5][union_inds[:, 0]], rois[:, 3:5][union_inds[:, 1]]),
     ),1)
 
     # (num_rois, d, pooling_size, pooling_size)
-    union_pools = RoIAlignFunction(pooling_size, pooling_size,
-                                   spatial_scale=1/stride)(fmap, union_rois)
+    union_pools = RoIAlignFunction(
+        pooling_size, pooling_size, spatial_scale=1/stride
+    )(fmap, union_rois)
     return union_pools
  

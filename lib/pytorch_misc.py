@@ -60,6 +60,7 @@ def get_ranking(predictions, labels, num_guesses=5):
     guesses = full_guesses[:, :num_guesses]
     return gt_ranks, guesses
 
+
 def cache(f):
     """
     Caches a computation
@@ -99,6 +100,7 @@ def to_variable(f):
             return tuple([Variable(x) for x in rez])
         return Variable(rez)
     return variable_wrapper
+
 
 def arange(base_tensor, n=None):
     new_size = base_tensor.size(0) if n is None else n

@@ -13,8 +13,8 @@ def bbox_loss(prior_boxes, deltas, gt_boxes, eps=1e-4, scale_before=1):
     :param gt_boxes: [num_boxes, 4] (x1, y1, x2, y2)
     :return:
     """
-    prior_centers = center_size(prior_boxes) #(cx, cy, w, h)
-    gt_centers = center_size(gt_boxes) #(cx, cy, w, h)
+    prior_centers = center_size(prior_boxes)  # (cx, cy, w, h)
+    gt_centers = center_size(gt_boxes)  # (cx, cy, w, h)
 
     center_targets = (gt_centers[:, :2] - prior_centers[:, :2]) / prior_centers[:, 2:]
     size_targets = torch.log(gt_centers[:, 2:]) - torch.log(prior_centers[:, 2:])

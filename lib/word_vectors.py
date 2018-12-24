@@ -23,7 +23,7 @@ def obj_edge_vectors(names, wv_type='glove.6B', wv_dir=WD_DIR, wv_dim=300):
     vectors.normal_(0, 1)
 
     for i, token in enumerate(names):
-        wv_index = wv_dict.get(token, None)
+        wv_index = wv_dict.get(token.strip('_'), None)
         if wv_index is not None:
             vectors[i] = wv_arr[wv_index]
         else:

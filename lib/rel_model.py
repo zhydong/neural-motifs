@@ -16,7 +16,6 @@ from lib.resnet import resnet_l4
 from config import BATCHNORM_MOMENTUM
 from lib.fpn.nms.functions.nms import apply_nms
 
-# from lib.decoder_rnn import DecoderRNN, lstm_factory, LockedDropout
 from lib.lstm.decoder_rnn import DecoderRNN
 from lib.lstm.highway_lstm_cuda.alternating_highway_lstm import AlternatingHighwayLSTM
 from lib.fpn.box_utils import bbox_overlaps, center_size
@@ -32,6 +31,7 @@ from lib.fpn.roi_align.functions.roi_align import RoIAlignFunction
 
 from IPython import embed
 
+
 def _sort_by_score(im_inds, scores):
     """
     We'll sort everything scorewise from Hi->low, BUT we need to keep images together
@@ -42,7 +42,7 @@ def _sort_by_score(im_inds, scores):
              Inverse permutation
              Lengths for the TxB packed sequence.
     """
-    num_im = im_inds[-1] + 1
+    num_im = int(im_inds[-1] + 1)
     rois_per_image = scores.new(num_im)
     lengths = []
     for i, s, e in enumerate_by_image(im_inds):
@@ -62,7 +62,7 @@ def _sort_by_score(im_inds, scores):
     perm = perm[inds]
     _, inv_perm = torch.sort(perm)
 
-    embed(header='_sort_by_score before return')
+    #embed(header='_sort_by_score before return')
     return perm, inv_perm, ls_transposed
 
 
@@ -149,7 +149,7 @@ class LinearizedContext(nn.Module):
         """
         :param batch_idx: tensor with what index we're on
         :param confidence: tensor with confidences between [0,1)
-        :param boxes: tensor with (x1, y1, x2, y2)
+        :param box_priors: tensor with (x1, y1, x2, y2)
         :return: Permutation, inverse permutation, and the lengths transposed (same as _sort_by_score)
         """
         cxcywh = center_size(box_priors)
@@ -224,6 +224,7 @@ class LinearizedContext(nn.Module):
         perm, inv_perm, ls_transposed = self.sort_rois(im_inds.data, confidence, box_priors)
         # Pass object features, sorted by score, into the encoder LSTM
         obj_inp_rep = obj_feats[perm].contiguous()
+        # embed(header='rel_model perm')
         input_packed = PackedSequence(obj_inp_rep, ls_transposed)
 
         encoder_rep = self.obj_ctx_rnn(input_packed)[0][0]
@@ -246,7 +247,7 @@ class LinearizedContext(nn.Module):
             obj_dists = Variable(to_onehot(obj_preds.data, self.num_classes))
         encoder_rep = encoder_rep[inv_perm]
 
-        embed(header='rel_model.py obj_ctx before return')
+        # embed(header='rel_model.py obj_ctx before return')
         return obj_dists, obj_preds, encoder_rep
 
     def forward(self, obj_fmaps, obj_logits, im_inds, obj_labels=None, box_priors=None, boxes_per_cls=None):
@@ -294,9 +295,9 @@ class LinearizedContext(nn.Module):
                                      nms_thresh=0.3)
                     nms_mask[:, c_i][keep] = 1
 
-                obj_preds = Variable(nms_mask * probs.data, volatile=True)[:,1:].max(1)[1] + 1
+                obj_preds = Variable(nms_mask * probs.data, volatile=True)[:, 1:].max(1)[1] + 1
             else:
-                obj_preds = obj_labels if obj_labels is not None else obj_dists2[:,1:].max(1)[1] + 1
+                obj_preds = obj_labels if obj_labels is not None else obj_dists2[:, 1:].max(1)[1] + 1
             obj_ctx = obj_pre_rep
 
         edge_ctx = None
@@ -561,7 +562,7 @@ class RelModel(nn.Module):
             
             one example:
            sgcls task: 
-result.fmap: torch.Size([6, 512, 37, 37])
+            result.fmap: torch.Size([6, 512, 37, 37])
 result.im_inds: torch.Size([44])
 result.obj_fmap: torch.Size([44, 4096])
 result.od_box_priors: torch.Size([44, 4])
@@ -638,6 +639,7 @@ result.rm_obj_labels: torch.Size([44])
         obj_rep = edge_rep[:, 1]
 
         prod_rep = subj_rep[rel_inds[:, 1]] * obj_rep[rel_inds[:, 2]]
+        # embed(header='rel_model.py prod_rep')
 
         if self.use_vision:
             vr = self.visual_rep(result.fmap.detach(), rois, rel_inds[:, 1:])
@@ -658,8 +660,9 @@ result.rm_obj_labels: torch.Size([44])
                 result.obj_preds[rel_inds[:, 2]],
             ), 1))
 
+        #embed(header='rel model return ')
         if self.training:
-            #embed(header='rel_model.py before return')
+            # embed(header='rel_model.py before return')
             # what will be useful:
             # rm_obj_dists, rm_obj_labels
             # rel_labels, rel_dists
@@ -677,8 +680,7 @@ result.rm_obj_labels: torch.Size([44])
 
         rel_rep = F.softmax(result.rel_dists, dim=1)
         #embed(header='rel_model.py before return')
-        return filter_dets(bboxes, result.obj_scores,
-                           result.obj_preds, rel_inds[:, 1:], rel_rep)
+        return filter_dets(bboxes, result.obj_scores, result.obj_preds, rel_inds[:, 1:], rel_rep)
 
     def __getitem__(self, batch):
         """ Hack to do multi-GPU training"""
