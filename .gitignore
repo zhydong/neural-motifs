@@ -2,6 +2,7 @@
 motifnet_predcls
 motifnet_sgcls
 fcknet-sgcls
+fcknet_sgcls
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
