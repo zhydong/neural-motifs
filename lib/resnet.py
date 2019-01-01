@@ -105,6 +105,7 @@ class ResNet(nn.Module):
 
         return x
 
+
 def resnet101(pretrained=False, **kwargs):
     """Constructs a ResNet-101 model.
 
@@ -116,12 +117,14 @@ def resnet101(pretrained=False, **kwargs):
         model.load_state_dict(model_zoo.load_url(model_urls['resnet101']))
     return model
 
+
 def resnet_l123():
     model = resnet101(pretrained=True)
     del model.layer4
     del model.avgpool
     del model.fc
     return model
+
 
 def resnet_l4(relu_end=True):
     model = resnet101(pretrained=True)
@@ -132,13 +135,14 @@ def resnet_l4(relu_end=True):
     l4[0].downsample[0].stride = (1, 1)
     return l4
 
+
 def vgg_fc(relu_end=True, linear_end=True):
     model = vgg16(pretrained=True)
     vfc = model.classifier
-    del vfc._modules['6'] # Get rid of linear layer
-    del vfc._modules['5'] # Get rid of linear layer
+    del vfc._modules['6']  # Get rid of linear layer
+    del vfc._modules['5']  # Get rid of linear layer
     if not relu_end:
-        del vfc._modules['4'] # Get rid of linear layer
+        del vfc._modules['4']  # Get rid of linear layer
         if not linear_end:
             del vfc._modules['3']
     return vfc

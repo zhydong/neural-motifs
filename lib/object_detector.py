@@ -51,7 +51,11 @@ class Result(object):
             rel_inds=None,
             rel_rep=None,
             rel_pn_dists=None,
-            rel_pn_labels=None
+            rel_pn_labels=None,
+            rel_trim_pos=None,  # trim / total
+            rel_trim_total=None,
+            rel_sample_pos=None,  # relevant / irrelevant
+            rel_sample_neg=None
     ):
         self.__dict__.update(locals())
         del self.__dict__['self']
@@ -690,6 +694,7 @@ def load_vgg(use_dropout=True, use_relu=True, use_linear=True, pretrained=True):
     del model.classifier._modules['6']  # Get rid of class layer
     if not use_dropout:
         del model.classifier._modules['5']  # Get rid of dropout
+        del model.classifier._modules['2']
         if not use_relu:
             del model.classifier._modules['4']  # Get rid of relu activation
             if not use_linear:

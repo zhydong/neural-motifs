@@ -3,20 +3,22 @@ Training script for scene graph detection. Integrated with my faster rcnn setup
 """
 import _init_paths
 
-from dataloaders.visual_genome import VGDataLoader, VG
-import numpy as np
-from torch import optim
-import torch
-import pandas as pd
-import time
 import os
+import time
+import numpy as np
+import pandas as pd
+import os.path as osp
+
+import torch
+from torch import optim
+from torch.nn import functional as F
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 from config import ModelConfig, BOX_SCALE, IM_SCALE
-from torch.nn import functional as F
+from dataloaders.visual_genome import VGDataLoader, VG
 from lib.pytorch_misc import optimistic_restore, de_chunkize, clip_grad_norm
 from lib.evaluation.sg_eval import BasicSceneGraphEvaluator
 from lib.pytorch_misc import print_para
-from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 from IPython import embed
 
@@ -34,13 +36,20 @@ else:
     raise ValueError()
 
 print('loading dataloader')
-train, val, _ = VG.splits(num_val_im=conf.val_size, filter_duplicate_rels=True,
-                          use_proposals=conf.use_proposals,
-                          filter_non_overlap=conf.mode == 'sgdet')
-train_loader, val_loader = VGDataLoader.splits(train, val, mode='rel',
-                                               batch_size=conf.batch_size,
-                                               num_workers=conf.num_workers,
-                                               num_gpus=conf.num_gpus)
+train, val, _ = VG.splits(
+    num_val_im=conf.val_size,
+    filter_duplicate_rels=True,
+    use_proposals=conf.use_proposals,
+    filter_non_overlap=conf.mode == 'sgdet'
+)
+train_loader, val_loader = VGDataLoader.splits(
+    train,
+    val,
+    mode='rel',
+    batch_size=conf.batch_size,
+    num_workers=conf.num_workers,
+    num_gpus=conf.num_gpus
+)
 
 # embed(header='fuck in train_rel.py')
 print('loading model')
@@ -59,12 +68,23 @@ detector = RelModel(
     use_proposals=conf.use_proposals,
     pass_in_obj_feats_to_decoder=conf.pass_in_obj_feats_to_decoder,
     pass_in_obj_feats_to_edge=conf.pass_in_obj_feats_to_edge,
-    pooling_dim=conf.pooling_dim,
+    obj_dim=conf.obj_dim,
     rec_dropout=conf.rec_dropout,
     use_bias=conf.use_bias,
     use_tanh=conf.use_tanh,
     limit_vision=conf.limit_vision
 )
+
+if conf.use_tf:
+    from tensorboardX import SummaryWriter
+    time_str = time.strftime("%Y-%m-%d_%H:%M:%S", time.localtime())
+    log_dir = osp.join('log', conf.model, 'train_%s' % time_str)
+    if not osp.exists(log_dir):
+        os.makedirs(log_dir)
+    tf_writer = SummaryWriter(
+        log_dir=log_dir,
+        comment='FckNet'
+    )
 
 print('freezing parameter.....')
 # Freeze the detector
@@ -77,8 +97,8 @@ print(print_para(detector), flush=True)
 def get_optim(lr):
     # Lower the learning rate on the VGG fully connected layers by 1/10th. It's a hack, but it helps
     # stabilize the models.
-    fc_params = [p for n,p in detector.named_parameters() if n.startswith('roi_fmap') and p.requires_grad]
-    non_fc_params = [p for n,p in detector.named_parameters() if not n.startswith('roi_fmap') and p.requires_grad]
+    fc_params = [p for n, p in detector.named_parameters() if n.startswith('roi_fmap') and p.requires_grad]
+    non_fc_params = [p for n, p in detector.named_parameters() if not n.startswith('roi_fmap') and p.requires_grad]
     params = [{'params': fc_params, 'lr': lr / 10.0}, {'params': non_fc_params}]
     # params = [p for n,p in detector.named_parameters() if p.requires_grad]
 
@@ -104,15 +124,20 @@ else:
     start_epoch = -1
     optimistic_restore(detector.detector, ckpt['state_dict'])
 
-    detector.roi_fmap[1][0].weight.data.copy_(ckpt['state_dict']['roi_fmap.0.weight'])
-    detector.roi_fmap[1][3].weight.data.copy_(ckpt['state_dict']['roi_fmap.3.weight'])
-    detector.roi_fmap[1][0].bias.data.copy_(ckpt['state_dict']['roi_fmap.0.bias'])
-    detector.roi_fmap[1][3].bias.data.copy_(ckpt['state_dict']['roi_fmap.3.bias'])
-
-    detector.roi_fmap_obj[0].weight.data.copy_(ckpt['state_dict']['roi_fmap.0.weight'])
-    detector.roi_fmap_obj[3].weight.data.copy_(ckpt['state_dict']['roi_fmap.3.weight'])
-    detector.roi_fmap_obj[0].bias.data.copy_(ckpt['state_dict']['roi_fmap.0.bias'])
-    detector.roi_fmap_obj[3].bias.data.copy_(ckpt['state_dict']['roi_fmap.3.bias'])
+    if conf.model.split('_')[0] == 'fcknet':
+        detector.roi_fmap[0][0].weight.data.copy_(ckpt['state_dict']['roi_fmap.0.weight'])
+        #detector.roi_fmap[0][3].weight.data.copy_(ckpt['state_dict']['roi_fmap.3.weight'])
+        detector.roi_fmap[0][0].bias.data.copy_(ckpt['state_dict']['roi_fmap.0.bias'])
+        #detector.roi_fmap[0][3].bias.data.copy_(ckpt['state_dict']['roi_fmap.3.bias'])
+    else:
+        detector.roi_fmap[1][0].weight.data.copy_(ckpt['state_dict']['roi_fmap.0.weight'])
+        detector.roi_fmap[1][3].weight.data.copy_(ckpt['state_dict']['roi_fmap.3.weight'])
+        detector.roi_fmap[1][0].bias.data.copy_(ckpt['state_dict']['roi_fmap.0.bias'])
+        detector.roi_fmap[1][3].bias.data.copy_(ckpt['state_dict']['roi_fmap.3.bias'])
+        detector.roi_fmap_obj[0].weight.data.copy_(ckpt['state_dict']['roi_fmap.0.weight'])
+        detector.roi_fmap_obj[3].weight.data.copy_(ckpt['state_dict']['roi_fmap.3.weight'])
+        detector.roi_fmap_obj[0].bias.data.copy_(ckpt['state_dict']['roi_fmap.0.bias'])
+        detector.roi_fmap_obj[3].bias.data.copy_(ckpt['state_dict']['roi_fmap.3.bias'])
 
 detector.cuda()
 
@@ -122,15 +147,38 @@ def train_epoch(epoch_num):
     tr = []
     start = time.time()
     for b, batch in enumerate(train_loader):
-        tr.append(train_batch(batch, b))
+        res = train_batch(batch, b)
+        if res is None:
+            continue
+        else:
+            tr.append(res)
 
         if b % conf.print_interval == 0 and b >= conf.print_interval:
+            #try:
             mn = pd.concat(tr[-conf.print_interval:], axis=1).mean(1)
+            #except:
+            #embed(header='concat')
             time_per_batch = (time.time() - start) / conf.print_interval
             print("\ne{:2d}b{:5d}/{:5d} {:.3f}s/batch, {:.1f}m/epoch".format(
                 epoch_num, b, len(train_loader), time_per_batch, len(train_loader) * time_per_batch / 60))
             print(mn)
             print('-----------', flush=True)
+
+            if conf.use_tf:
+                info = {
+                    'loss': mn['total'],
+                    'class_loss': mn['class_loss'],
+                    'rel_loss': mn['rel_loss'],
+                    'rel_pn_loss': mn['rel_pn_loss'],
+                    'rel_trim_ratio': mn['trim_pos'] / mn['trim_total'],
+                    'rel_sample_ratio': mn['sample_pos'] / (mn['sample_pos'] + mn['sample_neg']),
+                }
+                tf_writer.add_scalars(
+                    main_tag='.',
+                    tag_scalar_dict=info,
+                    global_step=b + epoch_num * len(train_loader)  # TOBE CHECK, batch num in an epoch
+                )
+
             start = time.time()
     return pd.concat(tr, axis=1)
 
@@ -160,17 +208,25 @@ def train_batch(batch, bi):
     """
     result = detector[batch]
     if result is None:
+        print('Error! No Pos Relation', bi)
         return
 
     losses = dict()
-    if conf.model == 'fcknet_v1':
-        losses['rel_pn_loss'] = F.cross_entropy(result.rel_pn_dists, result.rel_pn_labels)
-    losses['class_loss'] = F.cross_entropy(result.rm_obj_dists, result.rm_obj_labels)
-    losses['rel_loss'] = F.cross_entropy(result.rel_dists, result.rel_labels[:, -1])
-    #embed(header='fuck')
-    loss = sum(losses.values())
+
+    class_loss = F.cross_entropy(result.rm_obj_dists, result.rm_obj_labels)
+    losses['class_loss'] = class_loss.data[0]
+
+    rel_loss = F.cross_entropy(result.rel_dists, result.rel_labels[:, -1])
+    losses['rel_loss'] = rel_loss.data[0]
+
+    loss = class_loss + rel_loss
+    if conf.model == 'fcknet_v1' or conf.model == 'fcknet_v2':
+        rel_pn_loss = F.cross_entropy(result.rel_pn_dists, result.rel_pn_labels)
+        losses['rel_pn_loss'] = rel_pn_loss.data[0]
+        loss += rel_pn_loss
+
     if bi % conf.print_interval == 0 and bi >= conf.print_interval:
-        if conf.model == 'fcknet_v1':
+        if conf.model == 'fcknet_v1' or conf.model == 'fcknet_v2':
             print(
                 'rel_pn_loss: %.4f, cls_loss: %.4f, rel_loss: %.4f' %
                 (losses['rel_pn_loss'], losses['class_loss'], losses['rel_loss'])
@@ -183,15 +239,19 @@ def train_batch(batch, bi):
 
     optimizer.zero_grad()
     loss.backward()
-    #embed(header='after backward')
     clip_grad_norm(
         [(n, p) for n, p in detector.named_parameters() if p.grad is not None],
         max_norm=conf.clip, verbose=bi % (conf.print_interval*10) == 0, clip=True
     )
-    losses['total'] = loss
+
+    losses['total'] = loss.data[0]
+    losses['trim_pos'] = result.rel_trim_pos
+    losses['trim_total'] = result.rel_trim_total
+    losses['sample_pos'] = result.rel_sample_pos
+    losses['sample_neg'] = result.rel_sample_neg
     optimizer.step()
     #embed(header='fuck step')
-    res = pd.Series({x: y.data[0] for x, y in losses.items()})
+    res = pd.Series({x: y for x, y in losses.items()})
     #embed(header='train_rel.py train_batch before return')
     return res
 
@@ -218,8 +278,7 @@ def val_batch(batch_num, b, evaluator):
             'gt_relations': val.relationships[batch_num + i].copy(),
             'gt_boxes': val.gt_boxes[batch_num + i].copy(),
         }
-        assert np.all(objs_i[rels_i[:, 0]] > 0) and np.all(objs_i[rels_i[:, 1]] > 0)
-
+        assert np.all(objs_i[rels_i[:, 0]] > 0) and np.all(objs_i[rels_i[:, 1]] > 0), 'Object class not right'
         pred_entry = {
             'pred_boxes': boxes_i * BOX_SCALE/IM_SCALE,
             'pred_classes': objs_i,
@@ -236,7 +295,7 @@ def val_batch(batch_num, b, evaluator):
 
 print("Training starts now!")
 optimizer, scheduler = get_optim(conf.lr * conf.num_gpus * conf.batch_size)
-embed(header='before training')
+mAp = val_epoch()
 for epoch in range(start_epoch + 1, start_epoch + 1 + conf.num_epochs):
     rez = train_epoch(epoch)
     print("overall{:2d}: ({:.3f})\n{}".format(epoch, rez.mean(1)['total'], rez.mean(1)), flush=True)
@@ -253,3 +312,6 @@ for epoch in range(start_epoch + 1, start_epoch + 1 + conf.num_epochs):
     if any([pg['lr'] <= (conf.lr * conf.num_gpus * conf.batch_size)/99.0 for pg in optimizer.param_groups]):
         print("exiting training early", flush=True)
         break
+
+if conf.use_tf:
+    tf_writer.close()

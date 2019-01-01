@@ -6,6 +6,7 @@ fcknet_sgcls
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
+log/
 *.py[cod]
 *$py.class
 

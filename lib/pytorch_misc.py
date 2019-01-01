@@ -84,6 +84,7 @@ class Flattener(nn.Module):
         Flattens last 3 dimensions to make it only batch size, -1
         """
         super(Flattener, self).__init__()
+
     def forward(self, x):
         return x.view(x.size(0), -1)
 
@@ -185,24 +186,25 @@ def const_row(fill, l, volatile=False):
 
 
 def print_para(model):
-    """
-    Prints parameters of a model
-    :param opt:
-    :return:
+    """Prints parameters of a model
+    Args:
+        model: Module
     """
     st = {}
     strings = []
     total_params = 0
     for p_name, p in model.named_parameters():
-
         if not ('bias' in p_name.split('.')[-1] or 'bn' in p_name.split('.')[-1]):
             st[p_name] = ([str(x) for x in p.size()], np.prod(p.size()), p.requires_grad)
         total_params += np.prod(p.size())
     for p_name, (size, prod, p_req_grad) in sorted(st.items(), key=lambda x: -x[1][1]):
-        strings.append("{:<50s}: {:<16s}({:8d}) ({})".format(
-            p_name, '[{}]'.format(','.join(size)), prod, 'grad' if p_req_grad else '    '
+        strings.append("{:<50s}: {:<16s}({:<8s}) ({})".format(
+            p_name,
+            '[{}]'.format(','.join(size)),
+            '{}MB'.format(prod * 4 / 1000 / 1000),
+            'grad' if p_req_grad else '    '
         ))
-    return '\n {:.1f}M total parameters \n ----- \n \n{}'.format(total_params / 1000000.0, '\n'.join(strings))
+    return '\n {}MB total parameters \n ----- \n \n{}'.format(total_params * 4 / 1000000, '\n'.join(strings))
 
 
 def accuracy(output, target, topk=(1,)):
@@ -301,6 +303,7 @@ def enumerate_by_image(im_inds):
     #     e = inds_i[-1] + 1
     #     # print("On i={} we have s={} e={}".format(i, s, e))
     #     yield i, s, e
+
 
 def diagonal_inds(tensor):
     """
