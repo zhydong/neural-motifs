@@ -1,5 +1,6 @@
 """
 Add message passing
+Add Memory
 """
 
 import math
@@ -337,11 +338,19 @@ class FckModel(nn.Module):
         mp_box_feats = torch.stack(box_nodes_feats)
         return mp_box_feats
 
-    def relation_memory(self, rel_feats):
+    def update_mem(self, rel_feats):
         """Relation memory scheme
         Update memory and get message from memory
         Args:
             rel_feats: Variable, relation features
+        """
+        pass
+
+    def remember(self, rel_feats):
+        """
+
+        :param rel_feats:
+        :return:
         """
         pass
 
@@ -392,6 +401,7 @@ class FckModel(nn.Module):
         boxes = result.rm_box_priors
         obj_scores, box_classes = F.softmax(result.rm_obj_dists[:, 1:].contiguous(), dim=1).max(1)
         box_classes += 1
+        # TODO: predcls implementation obj_scores and box_classes
 
         num_img = im_inds[-1] + 1
 
@@ -510,12 +520,13 @@ class FckModel(nn.Module):
 
         # message passing between boxes and relations
         #embed(header='mp')
-        for _ in range(self.mp_iter_num):
-            box_feats = self.message_passing(box_feats, filter_box_pair_feats, filter_rel_inds)
-        box_cls_scores = self.cls_fc(box_feats)
-        result.rm_obj_dists = box_cls_scores
-        obj_scores, box_classes = F.softmax(box_cls_scores[:, 1:].contiguous(), dim=1).max(1)
-        box_classes += 1  # skip background
+        if self.mode == 'sgcls':
+            for _ in range(self.mp_iter_num):
+                box_feats = self.message_passing(box_feats, filter_box_pair_feats, filter_rel_inds)
+            box_cls_scores = self.cls_fc(box_feats)
+            result.rm_obj_dists = box_cls_scores
+            obj_scores, box_classes = F.softmax(box_cls_scores[:, 1:].contiguous(), dim=1).max(1)
+            box_classes += 1  # skip background
 
         # TODO: add memory module
         # filter_box_pair_feats is to be added to memory

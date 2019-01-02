@@ -69,6 +69,7 @@ detector = RelModel(
     pass_in_obj_feats_to_decoder=conf.pass_in_obj_feats_to_decoder,
     pass_in_obj_feats_to_edge=conf.pass_in_obj_feats_to_edge,
     obj_dim=conf.obj_dim,
+    pooling_dim=conf.pooling_dim,
     rec_dropout=conf.rec_dropout,
     use_bias=conf.use_bias,
     use_tanh=conf.use_tanh,
@@ -295,7 +296,7 @@ def val_batch(batch_num, b, evaluator):
 
 print("Training starts now!")
 optimizer, scheduler = get_optim(conf.lr * conf.num_gpus * conf.batch_size)
-mAp = val_epoch()
+#mAp = val_epoch()
 for epoch in range(start_epoch + 1, start_epoch + 1 + conf.num_epochs):
     rez = train_epoch(epoch)
     print("overall{:2d}: ({:.3f})\n{}".format(epoch, rez.mean(1)['total'], rez.mean(1)), flush=True)

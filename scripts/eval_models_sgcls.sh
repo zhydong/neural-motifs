@@ -27,9 +27,15 @@ elif [[ $1 == "2" ]]; then
         -p 100 -hidden_dim 512 -pooling_dim 4096 -lr 1e-3 -ngpu 1 -test -ckpt checkpoints/motifnet2/vgrel-5.tar -nepoch 50 -use_bias -cache motifnet_predcls
 elif [[ $1 == "3" ]]; then
     echo "Evaling FckNet"
-    python models/eval_rels.py -m sgcls -model fcknet -b 6 -ngpu 1 \
+    python models/eval_rels.py -m sgcls -model fcknet_v1 -b 6 -ngpu 1 \
         -ckpt checkpoints/fcknet-sgcls/vgrel-4.tar -test -cache fcknet-sgcls
-    python models/eval_rels.py -m predcls -model fcknet -b 6 -ngpu 1 \
+    python models/eval_rels.py -m predcls -model fcknet_v1 -b 6 -ngpu 1 \
         -ckpt checkpoints/fcknet-sgcls/vgrel-4.tar -test -cache fcknet-predcls
+elif [[ $1 == "4" ]]; then
+    echo "Evaling FckNet v2"
+    python models/eval_rels.py -m sgcls -model fcknet_v2 -b 6 -ngpu 1 \
+        -ckpt checkpoints/fcknet_v2-sgcls/vgrel-7.tar -test #-cache fcknet-sgcls
+    python models/eval_rels.py -m predcls -model fcknet_v2 -b 6 -ngpu 1 \
+        -ckpt checkpoints/fcknet_v2-sgcls/vgrel-0.tar -test #-cache fcknet-predcls
 fi
 

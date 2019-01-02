@@ -1,15 +1,16 @@
-"""
-Miscellaneous functions that might be useful for pytorch
+"""Miscellaneous functions that might be useful for pytorch
 """
 
-import h5py
-import numpy as np
-import torch
-from torch.autograd import Variable
 import os
+import h5py
 import dill as pkl
+import numpy as np
 from itertools import tee
+
+import torch
 from torch import nn
+from torch.autograd import Variable
+
 
 def optimistic_restore(network, state_dict):
     mismatch = False
@@ -17,13 +18,14 @@ def optimistic_restore(network, state_dict):
     for name, param in state_dict.items():
         if name not in own_state:
             print("Unexpected key {} in state_dict with size {}".format(name, param.size()))
-            mismatch = True
         elif param.size() == own_state[name].size():
             own_state[name].copy_(param)
         else:
-            print("Network has {} with size {}, ckpt has {}".format(name,
-                                                                    own_state[name].size(),
-                                                                    param.size()))
+            print("Network has {} with size {}, ckpt has {}".format(
+                name,
+                own_state[name].size(),
+                param.size()
+            ))
             mismatch = True
 
     missing = set(own_state.keys()) - set(state_dict.keys())
@@ -34,7 +36,8 @@ def optimistic_restore(network, state_dict):
 
 
 def pairwise(iterable):
-    "s -> (s0,s1), (s1,s2), (s2, s3), ..."
+    """s -> (s0,s1), (s1,s2), (s2, s3), ...
+    """
     a, b = tee(iterable)
     next(b, None)
     return zip(a, b)
@@ -127,6 +130,7 @@ def to_onehot(vec, num_classes, fill=1000):
     onehot_result.view(-1)[vec + num_classes*arange_inds] = fill
     return onehot_result
 
+
 def save_net(fname, net):
     h5f = h5py.File(fname, mode='w')
     for k, v in list(net.state_dict().items()):
@@ -160,6 +164,7 @@ def batch_index_iterator(len_l, batch_size, skip_end=True):
 
     for b_start in range(0, iterate_until, batch_size):
         yield (b_start, min(b_start+batch_size, len_l))
+
 
 def batch_map(f, a, batch_size):
     """
@@ -318,6 +323,7 @@ def diagonal_inds(tensor):
     torch.arange(0, tensor.size(0), out=arange_inds)
     return (size+1)*arange_inds
 
+
 def enumerate_imsize(im_sizes):
     s = 0
     for i, (h, w, scale, num_anchors) in enumerate(im_sizes):
@@ -326,6 +332,7 @@ def enumerate_imsize(im_sizes):
         yield i, s, e, h, w, scale, na
 
         s = e
+
 
 def argsort_desc(scores):
     """
@@ -345,11 +352,13 @@ def unravel_index(index, dims):
         index_cp /= d
     return torch.cat([x[:,None] for x in unraveled[::-1]], 1)
 
+
 def de_chunkize(tensor, chunks):
     s = 0
     for c in chunks:
         yield tensor[s:(s+c)]
         s = s+c
+
 
 def random_choose(tensor, num):
     "randomly choose indices"
@@ -426,6 +435,7 @@ def right_shift_packed_sequence_inds(lengths):
         cur_ind += l1
     return inds
 
+
 def clip_grad_norm(named_parameters, max_norm, clip=False, verbose=False):
     r"""Clips gradient norm of an iterable of parameters.
 
@@ -466,6 +476,7 @@ def clip_grad_norm(named_parameters, max_norm, clip=False, verbose=False):
         print('-------------------------------', flush=True)
 
     return total_norm
+
 
 def update_lr(optimizer, lr=1e-4):
     print("------ Learning rate -> {}".format(lr))

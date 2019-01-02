@@ -110,6 +110,7 @@ class ModelConfig(object):
         self.pass_in_obj_feats_to_decoder = None
         self.pass_in_obj_feats_to_edge = None
         self.obj_dim = None
+        self.pooling_dim = None
         self.rec_dropout = None
         self.parser = self.setup_parser()
         self.args = vars(self.parser.parse_args())
@@ -210,6 +211,7 @@ class ModelConfig(object):
         parser.add_argument('-nl_edge', dest='nl_edge', help='Num edge layers', type=int, default=2)
         parser.add_argument('-hidden_dim', dest='hidden_dim', help='Num edge layers', type=int, default=256)
         parser.add_argument('-obj_dim', dest='obj_dim', help='Dimension of object dimension', type=int, default=2048)
+        parser.add_argument('-pooling_dim', dest='pooling_dim', help='Dimension of object dimension', type=int, default=4096)
         parser.add_argument('-pass_in_obj_feats_to_decoder', dest='pass_in_obj_feats_to_decoder', action='store_true')
         parser.add_argument('-pass_in_obj_feats_to_edge', dest='pass_in_obj_feats_to_edge', action='store_true')
         parser.add_argument('-rec_dropout', dest='rec_dropout',

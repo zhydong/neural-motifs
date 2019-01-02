@@ -31,7 +31,7 @@ elif [[ $1 == "4" ]]; then
     echo "TRAINING FCKNET V2"
     python models/train_rels.py -m sgcls -model fcknet_v2 -b ${BATCH_SIZE} -p 100 -lr 1e-3 -ngpu ${NUM_GPU} -clip 5 \
     -use_tf \
-    -ckpt checkpoints/fcknet_v2-sgcls/vgrel-0.tar \
+    -ckpt checkpoints/fcknet_v2-sgcls/vgrel-4.tar \
     -save_dir checkpoints/fcknet_v2-sgcls
 fi
 #-ckpt checkpoints/motifnet2/vgrel-9.tar \

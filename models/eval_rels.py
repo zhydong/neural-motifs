@@ -18,10 +18,12 @@ if conf.model == 'motifnet':
     from lib.rel_model import RelModel
 elif conf.model == 'stanford':
     from lib.rel_model_stanford import RelModelStanford as RelModel
-elif conf.model == 'fcknet':
-    from lib.my_model import FckModel as RelModel
+elif conf.model == 'fcknet_v1':
+    from lib.my_model_v1 import FckModel as RelModel
+elif conf.model == 'fcknet_v2':
+    from lib.my_model_v2 import FckModel as RelModel
 else:
-    raise ValueError('conf.model should be motifnet, stanford, fcknet')
+    raise ValueError('conf.model should be motifnet, stanford, fcknet_v1, fcknet_v2')
 
 
 train, val, test = VG.splits(
@@ -51,11 +53,12 @@ else:
         use_proposals=conf.use_proposals,
         pass_in_obj_feats_to_decoder=conf.pass_in_obj_feats_to_decoder,
         pass_in_obj_feats_to_edge=conf.pass_in_obj_feats_to_edge,
-        pooling_dim=conf.pooling_dim,
         rec_dropout=conf.rec_dropout,
         use_bias=conf.use_bias,
         use_tanh=conf.use_tanh,
-        limit_vision=conf.limit_vision
+        limit_vision=conf.limit_vision,
+        obj_dim=conf.obj_dim,
+        pooling_dim=conf.pooling_dim
     )
     detector.cuda()
     ckpt = torch.load(conf.ckpt)
@@ -125,7 +128,8 @@ else:
     detector.eval()
     for val_b, batch in enumerate(tqdm(val_loader)):
         val_batch(conf.num_gpus*val_b, batch, sg_evaluator)
-        sg_evaluator[conf.mode].print_stats()
+        if val_b % 1000 == 0:
+            sg_evaluator[conf.mode].print_stats()
     embed(header='fuck')
 
     if conf.cache is not None:
