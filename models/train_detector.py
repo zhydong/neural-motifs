@@ -21,6 +21,8 @@ from lib.object_detector import ObjectDetector
 from lib.fpn.box_utils import bbox_loss
 from lib.pytorch_misc import optimistic_restore, clip_grad_norm
 
+from IPython import embed
+
 cudnn.benchmark = True
 conf = ModelConfig()
 
@@ -28,21 +30,38 @@ if conf.coco:
     train, val = CocoDetection.splits()
     val.ids = val.ids[:conf.val_size]
     train.ids = train.ids
-    train_loader, val_loader = CocoDataLoader.splits(train, val, batch_size=conf.batch_size,
-                                                     num_workers=conf.num_workers,
-                                                     num_gpus=conf.num_gpus)
+    train_loader, val_loader = CocoDataLoader.splits(
+        train,
+        val,
+        batch_size=conf.batch_size,
+        num_workers=conf.num_workers,
+        num_gpus=conf.num_gpus
+    )
 else:
-    train, val, _ = VG.splits(num_val_im=conf.val_size, filter_non_overlap=False,
-                              filter_empty_rels=False, use_proposals=conf.use_proposals)
-    train_loader, val_loader = VGDataLoader.splits(train, val, batch_size=conf.batch_size,
-                                                   num_workers=conf.num_workers,
-                                                   num_gpus=conf.num_gpus)
+    train, val, _ = VG.splits(
+        num_val_im=conf.val_size,
+        filter_non_overlap=False,
+        filter_empty_rels=False,
+        use_proposals=conf.use_proposals
+    )
+    train_loader, val_loader = VGDataLoader.splits(
+        train,
+        val,
+        batch_size=conf.batch_size,
+        num_workers=conf.num_workers,
+        num_gpus=conf.num_gpus
+    )
 
 logging.warn('finished loading dataset')
 
-detector = ObjectDetector(classes=train.ind_to_classes, num_gpus=conf.num_gpus,
-                          mode='rpntrain' if not conf.use_proposals else 'proposals', use_resnet=conf.use_resnet)
+detector = ObjectDetector(
+    classes=train.ind_to_classes,
+    num_gpus=conf.num_gpus,
+    mode='rpntrain' if not conf.use_proposals else 'proposals',
+    use_resnet=conf.use_resnet
+)
 detector.cuda()
+embed(header='shit before4 detector')
 
 # Note: if you're doing the stanford setup, you'll need to change this to freeze the lower layers
 if conf.use_proposals:

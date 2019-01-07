@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # Train the model without COCO pretraining
-CUDA_VISIBLE_DEVICES=0
-python models/train_detector.py -b 6 -lr 1e-3 -save_dir checkpoints/vgdet -nepoch 50 -ngpu 1 -nwork 1 -p 100 -clip 5
+CUDA_VISIBLE_DEVICES=0,1
+NUM_GPU=2
+NUM_WORKER=2
+python models/train_detector.py -b 6 -lr 1e-3 \
+-save_dir checkpoints/vgdet -nepoch 50 -ngpu ${NUM_GPU} -nwork ${NUM_WORKER} -p 100 -clip 5
 
 # If you want to evaluate on the frequency baseline now, run this command (replace the checkpoint with the
 # best checkpoint you found).

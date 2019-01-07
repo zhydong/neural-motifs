@@ -8,13 +8,17 @@ from dataloaders.visual_genome import VG
 from lib.fpn.box_intersections_cpu.bbox import bbox_overlaps
 from lib.pytorch_misc import nonintersecting_2d_inds
 
+from IPython import embed
 
-def get_counts(train_data=VG(mode='train', filter_duplicate_rels=False, num_val_im=5000), must_overlap=True):
-    """
-    Get counts of all of the relations. Used for modeling directly P(rel | o1, o2)
-    :param train_data: 
-    :param must_overlap: 
-    :return: 
+
+def get_counts(train_data=VG(mode='train', filter_duplicate_rels=False, num_val_im=0), must_overlap=True):
+    """Get counts of all of the relations. Used for modeling directly P(rel | o1, o2)
+    Args:
+        train_data:
+        must_overlap:
+    Returns:
+        fg:
+        bg:
     """
     fg_matrix = np.zeros((
         train_data.num_classes,
@@ -26,6 +30,7 @@ def get_counts(train_data=VG(mode='train', filter_duplicate_rels=False, num_val_
         train_data.num_classes,
         train_data.num_classes,
     ), dtype=np.int64)
+    # bg_matrix means possible relation, not background indeed
 
     for ex_ind in range(len(train_data)):
         gt_classes = train_data.gt_classes[ex_ind].copy()
@@ -38,11 +43,17 @@ def get_counts(train_data=VG(mode='train', filter_duplicate_rels=False, num_val_
             fg_matrix[o1, o2, gtr] += 1
 
         # For the background, get all of the things that overlap.
-        o1o2_total = gt_classes[np.array(
-            box_filter(gt_boxes, must_overlap=must_overlap), dtype=int)]
+        o1o2_total = gt_classes[
+            np.array(
+                box_filter(
+                    gt_boxes,
+                    must_overlap=must_overlap
+                ),
+                dtype=int
+            )
+        ]
         for (o1, o2) in o1o2_total:
             bg_matrix[o1, o2] += 1
-
     return fg_matrix, bg_matrix
 
 
@@ -65,6 +76,7 @@ def box_filter(boxes, must_overlap=False):
     else:
         possible_boxes = np.column_stack(np.where(all_possib))
     return possible_boxes
+
 
 if __name__ == '__main__':
     fg, bg = get_counts(must_overlap=False)

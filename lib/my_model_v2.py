@@ -118,7 +118,6 @@ class FckModel(nn.Module):
             thresh=thresh,
             max_per_img=64,
         )
-
         self.union_boxes = UnionBoxesAndFeats(
             pooling_size=self.pooling_size,
             stride=16,
@@ -473,8 +472,8 @@ class FckModel(nn.Module):
                     im_i_rel_bg_inds = np.random.choice(im_i_rel_bg_inds, size=im_i_bg_sample_num, replace=False)
 
                 #print('{}/{} fg/bg in image {}'.format(im_i_fg_sample_num, im_i_bg_sample_num, i))
-                result.rel_sample_pos = im_i_fg_sample_num
-                result.rel_sample_neg = im_i_bg_sample_num
+                result.rel_sample_pos = torch.Tensor([im_i_fg_sample_num]).cuda(im_i_rel_label.get_device())
+                result.rel_sample_neg = torch.Tensor([im_i_bg_sample_num]).cuda(im_i_rel_label.get_device())
 
                 im_i_keep_inds = np.append(im_i_rel_fg_inds, im_i_rel_bg_inds)
                 im_i_pair_score = im_i_box_pair_score[im_i_keep_inds.tolist()].contiguous()
@@ -498,8 +497,8 @@ class FckModel(nn.Module):
         if box_pos_pair_ind.data.shape == torch.Size([]):
             return None
         #print('{}/{} trim edges'.format(box_pos_pair_ind.size(0), rel_inds.size(0)))
-        result.rel_trim_pos = box_pos_pair_ind.size(0)
-        result.rel_trim_total = rel_inds.size(0)
+        result.rel_trim_pos = torch.Tensor([box_pos_pair_ind.size(0)]).cuda(box_pos_pair_ind.get_device())
+        result.rel_trim_total = torch.Tensor([rel_inds.size(0)]).cuda(rel_inds.get_device())
 
         # filtering relations
         filter_rel_inds = rel_inds[box_pos_pair_ind.data]

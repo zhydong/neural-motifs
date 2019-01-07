@@ -29,8 +29,8 @@ def block_orthogonal(tensor, split_sizes, gain=1.0):
     """
 
     if isinstance(tensor, Variable):
-       block_orthogonal(tensor.data, split_sizes, gain)
-       return tensor
+        block_orthogonal(tensor.data, split_sizes, gain)
+        return tensor
 
     sizes = list(tensor.size())
     if any([a % b != 0 for a, b in zip(sizes, split_sizes)]):
@@ -68,15 +68,17 @@ class _AlternatingHighwayLSTMFunction(Function):
         self.train = train
 
     @overrides
-    def forward(self,  # pylint: disable=arguments-differ
-                inputs: torch.Tensor,
-                weight: torch.Tensor,
-                bias: torch.Tensor,
-                state_accumulator: torch.Tensor,
-                memory_accumulator: torch.Tensor,
-                dropout_mask: torch.Tensor,
-                lengths: torch.Tensor,
-                gates: torch.Tensor) -> Tuple[torch.Tensor, None]:
+    def forward(
+            self,  # pylint: disable=arguments-differ
+            inputs: torch.Tensor,
+            weight: torch.Tensor,
+            bias: torch.Tensor,
+            state_accumulator: torch.Tensor,
+            memory_accumulator: torch.Tensor,
+            dropout_mask: torch.Tensor,
+            lengths: torch.Tensor,
+            gates: torch.Tensor
+    ) -> Tuple[torch.Tensor, None]:
         sequence_length, batch_size, input_size = inputs.size()
         tmp_i = inputs.new(batch_size, 6 * self.hidden_size)
         tmp_h = inputs.new(batch_size, 5 * self.hidden_size)

@@ -12,11 +12,12 @@ import torch.nn.parallel
 from torch.autograd import Variable
 from torch.nn import functional as F
 from torch.nn.utils.rnn import PackedSequence
+from torch.nn.utils.rnn import pack_padded_sequence
+from torch.nn.utils.rnn import pad_packed_sequence
 
 from lib.resnet import resnet_l4
 from config import BATCHNORM_MOMENTUM, RELEVANT_PER_IM, EDGES_PER_IM
 from lib.fpn.nms.functions.nms import apply_nms
-
 from lib.fpn.box_utils import bbox_overlaps, center_size
 from lib.get_union_boxes import UnionBoxesAndFeats
 from lib.fpn.proposal_assignments.rel_assignments import rel_assignments
@@ -24,9 +25,11 @@ from lib.object_detector import ObjectDetector, gather_res, load_vgg
 from lib.pytorch_misc import \
     transpose_packed_sequence_inds, to_onehot, arange, enumerate_by_image, diagonal_inds, Flattener
 from lib.sparse_targets import FrequencyBias
+from lib.get_dataset_counts import get_counts
 from lib.surgery import filter_dets
 from lib.word_vectors import obj_edge_vectors
 from lib.fpn.roi_align.functions.roi_align import RoIAlignFunction
+from lib.lstm.mem_rnn import MemoryRNN
 
 from IPython import embed
 
@@ -47,7 +50,7 @@ class FckModel(nn.Module):
             mode='sgdet',
             num_gpus=1,
             use_vision=True,
-            require_overlap_det=True,
+            require_overlap_det=False,
             embed_dim=200,
             hidden_dim=256,
             obj_dim=2048,
@@ -100,9 +103,9 @@ class FckModel(nn.Module):
         self.classes_word_embedding.weight.data = classes_word_vec.clone()
         self.classes_word_embedding.weight.requires_grad = False
 
-        # the last one is dirty bit
-        self.rel_mem = nn.Embedding(self.num_rels, self.obj_dim + 1)
-        self.rel_mem.weight.data[:, -1] = 0
+        fg_matrix, bg_matrix = get_counts()
+        #self.rel_obj_distribution =\
+        #    np.log(fg_matrix / fg_matrix.sum(2)[:, :, None] + eps)
 
         if mode == 'sgdet':
             if use_proposals:
@@ -143,6 +146,8 @@ class FckModel(nn.Module):
             nn.Linear(feats_dim, feats_dim),
             nn.ReLU(inplace=True)
         ])
+
+        # v2 model---------
         self.box_mp_fc = nn.Sequential(*[
             nn.Linear(obj_dim, obj_dim),
         ])
@@ -159,12 +164,25 @@ class FckModel(nn.Module):
             nn.ReLU(inplace=True),
             nn.Linear(obj_dim, 1)
         ])
+        # v2 model----------
 
         self.cls_fc = nn.Linear(obj_dim, self.num_classes)
+
         self.relcnn_fc2 = nn.Linear(feats_dim, self.num_rels if self.graph_cons else 2 * self.num_rels)
 
+        # v3 model -----------
+
+        self.mem_module = MemoryRNN(
+            classes=classes,
+            rel_classes=rel_classes,
+            inputs_dim=feats_dim,
+            hidden_dim=hidden_dim,
+            recurrent_dropout_probability=.0
+        )
+        # v3 model -----------
+
         if use_resnet:
-            #deprecate
+            # deprecate
             self.roi_fmap = nn.Sequential(
                 resnet_l4(relu_end=False),
                 nn.AvgPool2d(self.pooling_size),
@@ -250,6 +268,39 @@ class FckModel(nn.Module):
         )
         feature_pool = roi_align_func(features, rois)
         return self.roi_fmap(feature_pool.view(rois.size(0), -1))
+
+    def fuse_message(self, union_box_feats, boxes, box_classes, rel_inds):
+        """Fuse union Appearance features, box spatial information and NLP word features together
+        Args:
+            union_box_feats: Variable
+            boxes: Variable
+            box_classes: Variable
+            rel_inds: Variable
+        Returns:
+            box_pair_feats:
+        """
+        bboxes = Variable(center_size(boxes.data))
+        sub_bboxes = bboxes[rel_inds[:, 1].contiguous()]
+        obj_bboxes = bboxes[rel_inds[:, 2].contiguous()]
+
+        obj_bboxes[:, :2] = obj_bboxes[:, :2].contiguous() - sub_bboxes[:, :2].contiguous()  # x-y
+        obj_bboxes[:, 2:] = obj_bboxes[:, 2:].contiguous() / sub_bboxes[:, 2:].contiguous()  # w/h
+        obj_bboxes[:, :2] /= sub_bboxes[:, 2:].contiguous()  # x-y/h
+        obj_bboxes[:, 2:] = torch.log(obj_bboxes[:, 2:].contiguous())  # log(w/h)
+
+        bbox_spatial_feats = self.spatial_fc(obj_bboxes)
+
+        box_word = self.classes_word_embedding(box_classes)
+        box_pair_word = torch.cat(
+            (box_word[rel_inds[:, 1].contiguous()], box_word[rel_inds[:, 2].contiguous()]), 1
+        )
+        box_word_feats = self.word_fc(box_pair_word)
+
+        # (NumOfRels, DIM=)
+        box_pair_feats = torch.cat(
+            (union_box_feats, bbox_spatial_feats, box_word_feats), 1
+        )
+        return box_pair_feats
 
     def message_passing(self, box_feats, rel_feats, edges):
         """Integrate box feats to each other
@@ -337,6 +388,131 @@ class FckModel(nn.Module):
 
         mp_box_feats = torch.stack(box_nodes_feats)
         return mp_box_feats
+
+    @staticmethod
+    def pad_sequence(inds, feats):
+        """pad lstm input and compute lstm length input
+        e.g.
+            batch0='abc', batch1='xy'
+            output padded data:
+                a b c
+                x y *
+            asterisk is padded data
+            length is [2,2,1]
+        Args:
+            inds: torch.Tensor, image index of Rois, shape (NumOfRels, 3)
+                e.g. inds[0,:]=[0,3,2] means relation of box 3 to box2 in image 0
+            feats: torch.Tensor, unpadded features
+                with shape of (NumOfRels, DimOfFeature)
+        Returns:
+            packed_lengths: list of int, length of pytorch RNN input
+                refer to pytorch documentation(pack_padded_sequence)
+            padded_feats: torch.Tensor, padded features
+            re_inds: torch.Tensor, re-order image_inds, order by relation number descending order
+            re_inds_np_inds: np.array, (NumOfRels,), the indexes in original rel_label refering to re_inds
+        """
+        num_img = int(inds[-1][0] + 1)
+        feat_dim = feats.shape[-1]
+        # length matrix:
+        # Use structure array to sort length in descending order
+        dtype = [('imgid', int), ('length', int), ('s', int), ('e', int)]
+        values = list()
+        im_start = 0
+        for im_i in range(num_img):
+            rel_ind_im_i, _ = np.where(inds[:, 0:1] == im_i)
+            length_im_i = len(rel_ind_im_i)
+            s = im_start
+            e = im_start + length_im_i
+            values.append((im_i, length_im_i, s, e))
+            im_start = e
+        length_matrix = np.array(values, dtype=dtype)
+        length_matrix[::-1].sort(order='length')
+        max_length = int(length_matrix[0][1])
+        sorted_lengths = length_matrix['length']
+        # get feat
+        if feats.data.is_cuda:
+            padding_feat = torch.FloatTensor(num_img, max_length, feat_dim).zero_().cuda(feats.get_device())
+        else:
+            padding_feat = torch.FloatTensor(num_img, max_length, feat_dim).zero_()
+        # in re-ordered order
+        for re_im_i in range(num_img):
+            length_i = length_matrix[re_im_i][1]
+            if length_i == 0:
+                continue
+            s = length_matrix['s'][re_im_i]
+            e = length_matrix['e'][re_im_i]
+            padding_feat[re_im_i][:length_i] = feats[s:e].data
+        if feats.data.is_cuda:
+            re_inds = torch.Tensor().cuda()
+        else:
+            re_inds = torch.Tensor()
+        for ix, im_i in enumerate(length_matrix['imgid']):
+            im_i_length = length_matrix[ix][1]
+            im_i_inds = torch.ones(int(im_i_length)) * im_i.astype('float')
+            if feats.data.is_cuda:
+                re_inds = torch.cat([re_inds, im_i_inds.cuda()], dim=0)
+            else:
+                re_inds = torch.cat([re_inds, im_i_inds], dim=0)
+
+        re_inds_np_inds = np.array([], dtype='int')
+        for ix, v in enumerate(length_matrix):
+            s, e = v[2], v[3]
+            re_inds_np_inds = np.concatenate(
+                (re_inds_np_inds, np.arange(s, e)),
+                axis=0
+            )
+        re_inds = inds[re_inds_np_inds.tolist()]
+
+        return Variable(padding_feat), sorted_lengths, re_inds, re_inds_np_inds
+
+    @staticmethod
+    def re_order_packed_seq(packed_seq, ori_inds, re_inds):
+        """Re-order pack sequence
+        original: [0,0,1,1,1,2,2,2,2]
+        re_inds:[2,2,2,2,1,1,1,0,0]
+
+        re order packed_seq by original order
+        Args:
+            packed_seq: PackedSequence
+            ori_inds: torch.Tensor, original index, shape(NumOfSeq, 3)
+            re_inds: torch.Tensor, current index, shape(NumOfSeq, 3)
+        Returns:
+            seq: torch.Tensor, re-order sequence
+        """
+        unpack, lens = pad_packed_sequence(packed_seq, batch_first=True)
+        # unpack: (NumImg, MaxLength, DIM)
+        # lens: (NumImg, 1)
+        num_img_with_rels = len(lens)
+        num_img = int(ori_inds[-1][0] + 1)
+        # feats: remove padding from unpack
+        # perm: permutation of feats
+        if unpack.data.is_cuda:
+            feats = torch.Tensor().cuda(unpack.get_device())
+            perm = torch.LongTensor().cuda(unpack.get_device())
+        else:
+            feats = torch.Tensor()
+            perm = torch.LongTensor()
+
+        for im_i in range(num_img_with_rels):
+            if feats.shape == torch.Size([]):
+                feats = unpack[im_i][:lens[im_i]]
+            else:
+                feats = torch.cat([feats, unpack[im_i][:lens[im_i]]], dim=0)
+
+        for im_i in range(num_img):
+            re_im_i_inds = np.where(re_inds[:, 0:1] == im_i)[0]
+            if re_im_i_inds.size == 0:
+                continue
+            if unpack.data.is_cuda:
+                re_im_i_inds = torch.LongTensor(re_im_i_inds).cuda(unpack.get_device())
+            else:
+                re_im_i_inds = torch.LongTensor(re_im_i_inds)
+            if perm.shape == torch.Size([]):
+                perm = re_im_i_inds
+            else:
+                perm = torch.cat([perm, re_im_i_inds], dim=0)
+
+        return feats[perm]
 
     def update_mem(self, rel_feats):
         """Relation memory scheme
@@ -437,35 +613,14 @@ class FckModel(nn.Module):
         # single box feats (NumOfBoxes, feats)
         box_feats = self.obj_feature_map(result.fmap.detach(), rois)
         # box spatial feats (NumOfBox, 4)
-        bboxes = Variable(center_size(boxes.data))
-        sub_bboxes = bboxes[rel_inds[:, 1].contiguous()]
-        obj_bboxes = bboxes[rel_inds[:, 2].contiguous()]
 
-        obj_bboxes[:, :2] = obj_bboxes[:, :2].contiguous() - sub_bboxes[:, :2].contiguous()  # x-y
-        obj_bboxes[:, 2:] = obj_bboxes[:, 2:].contiguous() / sub_bboxes[:, 2:].contiguous()  # w/h
-        obj_bboxes[:, :2] /= sub_bboxes[:, 2:].contiguous()  # x-y/h
-        obj_bboxes[:, 2:] = torch.log(obj_bboxes[:, 2:].contiguous())  # log(w/h)
-
-        bbox_spatial_feats = self.spatial_fc(obj_bboxes)
-
-        box_word = self.classes_word_embedding(box_classes)
-        box_pair_word = torch.cat(
-            (box_word[rel_inds[:, 1].contiguous()], box_word[rel_inds[:, 2].contiguous()]), 1
-        )
-        box_word_feats = self.word_fc(box_pair_word)
-
-        # (NumOfRels, DIM=)
-        box_pair_feats = torch.cat(
-            (union_box_feats, bbox_spatial_feats, box_word_feats), 1
-        )
-
+        box_pair_feats = self.fuse_message(union_box_feats, boxes, box_classes, rel_inds)
         box_pair_score = self.relpn_fc(box_pair_feats)
-        #embed(header='filter_rel_labels')
+
         if self.training:
-            pn_rel_label = list()
-            pn_pair_score = list()
-            #print(result.rel_labels.shape)
-            #print(result.rel_labels[:, 0].contiguous().squeeze())
+            # sampling pos and neg relations here for training
+            rel_sample_pos, rel_sample_neg = 0, 0
+            pn_rel_label, pn_pair_score = list(), list()
             for i, s, e in enumerate_by_image(result.rel_labels[:, 0].data.contiguous()):
                 im_i_rel_label = result.rel_labels[s:e].contiguous()
                 im_i_box_pair_score = box_pair_score[s:e].contiguous()
@@ -483,8 +638,8 @@ class FckModel(nn.Module):
                     im_i_rel_bg_inds = np.random.choice(im_i_rel_bg_inds, size=im_i_bg_sample_num, replace=False)
 
                 #print('{}/{} fg/bg in image {}'.format(im_i_fg_sample_num, im_i_bg_sample_num, i))
-                result.rel_sample_pos = im_i_fg_sample_num
-                result.rel_sample_neg = im_i_bg_sample_num
+                rel_sample_pos += im_i_fg_sample_num
+                rel_sample_neg += im_i_bg_sample_num
 
                 im_i_keep_inds = np.append(im_i_rel_fg_inds, im_i_rel_bg_inds)
                 im_i_pair_score = im_i_box_pair_score[im_i_keep_inds.tolist()].contiguous()
@@ -499,6 +654,8 @@ class FckModel(nn.Module):
 
             result.rel_pn_dists = torch.cat(pn_pair_score, 0)
             result.rel_pn_labels = torch.cat(pn_rel_label, 0)
+            result.rel_sample_pos = torch.Tensor([rel_sample_pos]).cuda(im_i_rel_label.get_device())
+            result.rel_sample_neg = torch.Tensor([rel_sample_neg]).cuda(im_i_rel_label.get_device())
 
         box_pair_relevant = F.softmax(box_pair_score, dim=1)
         box_pos_pair_ind = torch.nonzero(
@@ -508,31 +665,30 @@ class FckModel(nn.Module):
         if box_pos_pair_ind.data.shape == torch.Size([]):
             return None
         #print('{}/{} trim edges'.format(box_pos_pair_ind.size(0), rel_inds.size(0)))
-        result.rel_trim_pos = box_pos_pair_ind.size(0)
-        result.rel_trim_total = rel_inds.size(0)
+        result.rel_trim_pos = torch.Tensor([box_pos_pair_ind.size(0)]).cuda(box_pos_pair_ind.get_device())
+        result.rel_trim_total = torch.Tensor([rel_inds.size(0)]).cuda(rel_inds.get_device())
 
         # filtering relations
         filter_rel_inds = rel_inds[box_pos_pair_ind.data]
         filter_box_pair_feats = box_pair_feats[box_pos_pair_ind.data]
         if self.training:
             filter_rel_labels = result.rel_labels[box_pos_pair_ind.data]
+            try:
+                num_gt_filtered = torch.nonzero(filter_rel_labels[:, -1]).size(0)
+            except:
+                embed(header='exception in gt_filtered')
+            num_gt_orignial = torch.nonzero(result.rel_labels[:, -1]).size(0)
+            result.rel_pn_recall = torch.Tensor([num_gt_filtered / num_gt_orignial]).cuda(x.get_device())
             result.rel_labels = filter_rel_labels
 
         # message passing between boxes and relations
-        #embed(header='mp')
-        if self.mode == 'sgcls':
+        if self.mode in ('sgcls', 'sgdet'):
             for _ in range(self.mp_iter_num):
                 box_feats = self.message_passing(box_feats, filter_box_pair_feats, filter_rel_inds)
             box_cls_scores = self.cls_fc(box_feats)
             result.rm_obj_dists = box_cls_scores
             obj_scores, box_classes = F.softmax(box_cls_scores[:, 1:].contiguous(), dim=1).max(1)
             box_classes += 1  # skip background
-
-        # TODO: add memory module
-        # filter_box_pair_feats is to be added to memory
-        # fbiilter_box_pair_feats = self.memory_()
-
-        # filter_box_pair_feats is to be added to memory
 
         # RelationCNN
         filter_box_pair_feats_fc1 = self.relcnn_fc1(filter_box_pair_feats)
@@ -541,10 +697,51 @@ class FckModel(nn.Module):
             filter_box_pair_score = filter_box_pair_score.view(-1, 2, self.num_rels)
         result.rel_dists = filter_box_pair_score
 
+        # filter_box_pair_feats is to be added to memory
+        padded_filter_feats, pack_lengths, re_filter_rel_inds, re_indexes = \
+            self.pad_sequence(filter_rel_inds, filter_box_pair_feats_fc1)
+
+        # trimming zeros to avoid no rel in image
+        trim_pack_lengths = np.trim_zeros(pack_lengths)
+        trim_padded_filter_feats = padded_filter_feats[:trim_pack_lengths.shape[0]]
+        packed_filter_feats = pack_padded_sequence(
+            trim_padded_filter_feats, trim_pack_lengths, batch_first=True
+        )
+        if self.training:
+            re_order_rel_labels = result.rel_labels[re_indexes.tolist()]
+            rel_mem_dists = self.mem_module(
+                inputs=packed_filter_feats,
+                rel_labels=re_order_rel_labels
+            )
+            rel_mem_dists = self.re_order_packed_seq(rel_mem_dists, filter_rel_inds, re_filter_rel_inds)
+        else:
+            rel_mem_dists = self.mem_module(
+                inputs=packed_filter_feats
+            )
+
+        result.rel_mem_dists = rel_mem_dists
+
         if self.training:
             return result
 
-        pred_scores = F.softmax(result.rel_dists, dim=1)
+        if result.rel_mem_dists is None:
+            pred_scores = F.softmax(result.rel_dists, dim=1)
+        else:
+            # rel_mem_dist is a list in test mode
+            pred_scores_rel = []
+            for rel_i in range(self.num_rels):
+                rel_i_rel_mem_dists = rel_mem_dists[rel_i]
+                rel_i_rel_mem_dists = \
+                    self.re_order_packed_seq(
+                        rel_i_rel_mem_dists,
+                        filter_rel_inds,
+                        re_filter_rel_inds
+                    )
+                rel_i_pred_scores = F.softmax(rel_i_rel_mem_dists, dim=1)
+                pred_scores_rel.append(rel_i_pred_scores)
+                # TODO:
+                # multiply P(M|O)
+            pred_scores = F.softmax(result.rel_mem_dists, dim=1)
         """
         filter_dets
         boxes: bbox regression else [num_box, 4]

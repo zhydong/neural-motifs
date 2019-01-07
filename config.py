@@ -21,7 +21,7 @@ def stanford_path(fn):
 # Update these with where your data is stored ~~~~~~~~~~~~~~~~~~~~~~~~~
 
 
-VG_IMAGES = '/home/zhydong/mydata/visual_genome/VG_100K'
+VG_IMAGES = '/home/dong/storage/data/visual_genome/VG_100K'
 RCNN_CHECKPOINT_FN = path('faster_rcnn_500k.h5')
 
 IM_DATA_FN = stanford_path('image_data_correct.json')
@@ -143,7 +143,7 @@ class ModelConfig(object):
         if self.mode not in MODES:
             raise ValueError("Invalid mode: mode must be in {}".format(MODES))
 
-        if self.model not in ('motifnet', 'stanford', 'fcknet_v1', 'fcknet_v2'):
+        if self.model not in ('motifnet', 'stanford', 'fcknet_v1', 'fcknet_v2', 'fcknet_v3'):
             raise ValueError("Invalid model {}".format(self.model))
 
         if self.ckpt is not None and not os.path.exists(self.ckpt):
@@ -209,7 +209,7 @@ class ModelConfig(object):
         parser.add_argument('-proposals', dest='use_proposals', help='Use Xu et als proposals', action='store_true')
         parser.add_argument('-nl_obj', dest='nl_obj', help='Num object layers', type=int, default=1)
         parser.add_argument('-nl_edge', dest='nl_edge', help='Num edge layers', type=int, default=2)
-        parser.add_argument('-hidden_dim', dest='hidden_dim', help='Num edge layers', type=int, default=256)
+        parser.add_argument('-hidden_dim', dest='hidden_dim', help='Num edge layers', type=int, default=512)
         parser.add_argument('-obj_dim', dest='obj_dim', help='Dimension of object dimension', type=int, default=2048)
         parser.add_argument('-pooling_dim', dest='pooling_dim', help='Dimension of object dimension', type=int, default=4096)
         parser.add_argument('-pass_in_obj_feats_to_decoder', dest='pass_in_obj_feats_to_decoder', action='store_true')

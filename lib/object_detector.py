@@ -55,7 +55,10 @@ class Result(object):
             rel_trim_pos=None,  # trim / total
             rel_trim_total=None,
             rel_sample_pos=None,  # relevant / irrelevant
-            rel_sample_neg=None
+            rel_sample_neg=None,
+            rel_pn_recall=None,  #rel pn recall
+            rel_mem_bin_dists=None,
+            rel_mem_bin_labels=None
     ):
         self.__dict__.update(locals())
         del self.__dict__['self']
@@ -64,14 +67,17 @@ class Result(object):
         return all([v is None for k, v in self.__dict__.items() if k != 'self'])
 
 
-def gather_res(outputs, target_device, dim=0):
-    """
-    Assuming the signatures are the same accross results!
+def gather_res(outputs, target_device=0, dim=0):
+    """Assuming the signatures are the same accross results!
     """
     out = outputs[0]
     args = {
         field:
-            Gather.apply(target_device, dim, *[getattr(o, field) for o in outputs])
+            Gather.apply(
+                target_device,
+                dim,
+                *[getattr(o, field) for o in outputs]
+            )
         for field, v in out.__dict__.items() if v is not None
     }
     return type(out)(**args)
@@ -468,6 +474,7 @@ class ObjectDetector(nn.Module):
         if self.num_gpus == 1:
             return self(*batch[0])
 
+        embed(header='before replica')
         replicas = nn.parallel.replicate(self, devices=list(range(self.num_gpus)))
         outputs = nn.parallel.parallel_apply(replicas, [batch[i] for i in range(self.num_gpus)])
 

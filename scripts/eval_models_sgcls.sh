@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # This is a script that will evaluate all models for SGCLS
-CUDA_VISIBLE_DEVICES=1
+CUDA_VISIBLE_DEVICES=2
 echo Using GPUs: ${CUDA_VISIBLE_DEVICES}
 
 if [[ $1 == "0" ]]; then
@@ -37,5 +37,11 @@ elif [[ $1 == "4" ]]; then
         -ckpt checkpoints/fcknet_v2-sgcls/vgrel-7.tar -test #-cache fcknet-sgcls
     python models/eval_rels.py -m predcls -model fcknet_v2 -b 6 -ngpu 1 \
         -ckpt checkpoints/fcknet_v2-sgcls/vgrel-0.tar -test #-cache fcknet-predcls
+elif [[ $1 == "5" ]]; then
+    echo "Evaling FckNet v3"
+    python models/eval_rels.py -m sgcls -model fcknet_v3 -b 6 -ngpu 1 \
+        -ckpt checkpoints/fcknet_v3-sgcls/vgrel-0.tar -test #-cache fcknet-sgcls
+    python models/eval_rels.py -m predcls -model fcknet_v3 -b 6 -ngpu 1 \
+        -ckpt checkpoints/fcknet_v3-sgcls/vgrel-0.tar -test #-cache fcknet-predcls
 fi
 

@@ -19,6 +19,7 @@ from dataloaders.visual_genome import VGDataLoader, VG
 from lib.pytorch_misc import optimistic_restore, de_chunkize, clip_grad_norm
 from lib.evaluation.sg_eval import BasicSceneGraphEvaluator
 from lib.pytorch_misc import print_para
+from lib.object_detector import ObjectDetector
 
 from IPython import embed
 
@@ -32,6 +33,8 @@ elif conf.model == 'fcknet_v1':
     from lib.my_model_v1 import FckModel as RelModel
 elif conf.model == 'fcknet_v2':
     from lib.my_model_v2 import FckModel as RelModel
+elif conf.model == 'fcknet_v3':
+    from lib.my_model_v3 import FckModel as RelModel
 else:
     raise ValueError()
 
@@ -75,6 +78,8 @@ detector = RelModel(
     use_tanh=conf.use_tanh,
     limit_vision=conf.limit_vision
 )
+
+detector.cuda()
 
 if conf.use_tf:
     from tensorboardX import SummaryWriter
@@ -140,7 +145,6 @@ else:
         detector.roi_fmap_obj[0].bias.data.copy_(ckpt['state_dict']['roi_fmap.0.bias'])
         detector.roi_fmap_obj[3].bias.data.copy_(ckpt['state_dict']['roi_fmap.3.bias'])
 
-detector.cuda()
 
 
 def train_epoch(epoch_num):
@@ -204,8 +208,7 @@ def train_batch(batch, bi):
             gt_classes: [num_gt, 2] gt boxes where each one is (img_id, class)
         bi: batch index, integer
     Returns:
-        result
-    :return:
+        result: pd.Series, result dict
     """
     result = detector[batch]
     if result is None:
@@ -221,17 +224,27 @@ def train_batch(batch, bi):
     losses['rel_loss'] = rel_loss.data[0]
 
     loss = class_loss + rel_loss
-    if conf.model == 'fcknet_v1' or conf.model == 'fcknet_v2':
+    if conf.model.split('_')[0] == 'fcknet':
         rel_pn_loss = F.cross_entropy(result.rel_pn_dists, result.rel_pn_labels)
         losses['rel_pn_loss'] = rel_pn_loss.data[0]
         loss += rel_pn_loss
 
+    # TODO
+    if conf.model == 'fcknet_v3':
+        rel_mem_loss = F.cross_entropy(result.rel_mem_dists, result.rel_labels[:, -1])
+        losses['mem_loss'] = rel_mem_loss.data[0]
+        loss += rel_mem_loss
     if bi % conf.print_interval == 0 and bi >= conf.print_interval:
-        if conf.model == 'fcknet_v1' or conf.model == 'fcknet_v2':
+        if conf.model.split('_')[0] == 'fcknet':
             print(
                 'rel_pn_loss: %.4f, cls_loss: %.4f, rel_loss: %.4f' %
                 (losses['rel_pn_loss'], losses['class_loss'], losses['rel_loss'])
             )
+            if conf.model == 'fcknet_v3':
+                print(
+                    'rel_mem_loss: %.4f' % losses['mem_loss']
+                )
+
         else:
             print(
                 'cls_loss: %.4f, rel_loss: %.4f' %
@@ -246,14 +259,13 @@ def train_batch(batch, bi):
     )
 
     losses['total'] = loss.data[0]
-    losses['trim_pos'] = result.rel_trim_pos
-    losses['trim_total'] = result.rel_trim_total
-    losses['sample_pos'] = result.rel_sample_pos
-    losses['sample_neg'] = result.rel_sample_neg
+    losses['trim_pos'] = result.rel_trim_pos[0]
+    losses['trim_total'] = result.rel_trim_total[0]
+    losses['sample_pos'] = result.rel_sample_pos[0]
+    losses['sample_neg'] = result.rel_sample_neg[0]
+    losses['relpn_recall'] = result.rel_pn_recall[0]
     optimizer.step()
-    #embed(header='fuck step')
     res = pd.Series({x: y for x, y in losses.items()})
-    #embed(header='train_rel.py train_batch before return')
     return res
 
 
