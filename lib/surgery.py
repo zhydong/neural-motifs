@@ -31,7 +31,7 @@ def filter_dets(boxes, obj_scores, obj_classes, rel_inds, pred_scores):
         obj_scores: [num_box] probabilities for the scores
         obj_classes: [num_box] class labels integer
         rel_inds: [num_rel, 2] TENSOR consisting of (im_ind0, im_ind1)
-        pred_scores: [num_rel, num_predicates] including irrelevant class(#relclass + 1)
+        pred_scores: torch.Tensor, [num_rel, num_predicates] including irrelevant class(#relclass + 1)
     Returns:
         boxes_out:
         objs_np:
@@ -53,14 +53,14 @@ def filter_dets(boxes, obj_scores, obj_classes, rel_inds, pred_scores):
     obj_scores0 = obj_scores.data[rel_inds[:, 0]]
     obj_scores1 = obj_scores.data[rel_inds[:, 1]]
 
-    pred_scores_max, pred_classes_argmax = pred_scores.data[:, 1:].max(1)
+    pred_scores_max, pred_classes_argmax = pred_scores[:, 1:].max(1)
     pred_classes_argmax = pred_classes_argmax + 1  # skip the 0 irrelevant
 
     rel_scores_argmaxed = pred_scores_max * obj_scores0 * obj_scores1
     rel_scores_vs, rel_scores_idx = torch.sort(rel_scores_argmaxed.view(-1), dim=0, descending=True)
 
     rels = rel_inds[rel_scores_idx].cpu().numpy()
-    pred_scores_sorted = pred_scores[rel_scores_idx].data.cpu().numpy()
+    pred_scores_sorted = pred_scores[rel_scores_idx].cpu().numpy()
     obj_scores_np = obj_scores.data.cpu().numpy()
     objs_np = obj_classes.data.cpu().numpy()
     boxes_out = boxes.data.cpu().numpy()

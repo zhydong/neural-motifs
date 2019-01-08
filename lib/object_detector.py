@@ -57,8 +57,7 @@ class Result(object):
             rel_sample_pos=None,  # relevant / irrelevant
             rel_sample_neg=None,
             rel_pn_recall=None,  #rel pn recall
-            rel_mem_bin_dists=None,
-            rel_mem_bin_labels=None
+            rel_mem_dists=None
     ):
         self.__dict__.update(locals())
         del self.__dict__['self']

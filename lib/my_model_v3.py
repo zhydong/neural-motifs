@@ -4,6 +4,8 @@ Add Memory
 """
 
 import math
+import time
+from time import time as tt
 import numpy as np
 
 import torch
@@ -68,12 +70,13 @@ class FckModel(nn.Module):
             use_tanh=True,
             limit_vision=True,
             spatial_dim=128,
-            graph_constrain=True,
-            mp_iter_num=1
+            mp_iter_num=1,
+            trim_graph=True
     ):
         """
         Args:
             mp_iter_num: integer, number of message passing iteration
+            trim_graph: boolean, trim graph in rel pn
         """
         super(FckModel, self).__init__()
         self.classes = classes
@@ -95,17 +98,22 @@ class FckModel(nn.Module):
         self.limit_vision = limit_vision
         self.require_overlap = require_overlap_det and self.mode == 'sgdet'
 
-        self.graph_cons = graph_constrain
         self.mp_iter_num = mp_iter_num
+        self.trim_graph = trim_graph
 
         classes_word_vec = obj_edge_vectors(self.classes, wv_dim=embed_dim)
         self.classes_word_embedding = nn.Embedding(self.num_classes, embed_dim)
         self.classes_word_embedding.weight.data = classes_word_vec.clone()
         self.classes_word_embedding.weight.requires_grad = False
 
-        fg_matrix, bg_matrix = get_counts()
-        #self.rel_obj_distribution =\
-        #    np.log(fg_matrix / fg_matrix.sum(2)[:, :, None] + eps)
+        #fg_matrix, bg_matrix = get_counts()
+        #rel_obj_distribution = fg_matrix / (fg_matrix.sum(2)[:, :, None] + 1e-5)
+        #rel_obj_distribution = torch.FloatTensor(rel_obj_distribution)
+        #rel_obj_distribution = rel_obj_distribution.view(-1, self.num_rels)
+#
+        #self.rel_obj_distribution = nn.Embedding(rel_obj_distribution.size(0), self.num_rels)
+        ## (#obj_class * #obj_class, #rel_class)
+        #self.rel_obj_distribution.weight.data = rel_obj_distribution
 
         if mode == 'sgdet':
             if use_proposals:
@@ -168,7 +176,7 @@ class FckModel(nn.Module):
 
         self.cls_fc = nn.Linear(obj_dim, self.num_classes)
 
-        self.relcnn_fc2 = nn.Linear(feats_dim, self.num_rels if self.graph_cons else 2 * self.num_rels)
+        self.relcnn_fc2 = nn.Linear(feats_dim, self.num_rels)
 
         # v3 model -----------
 
@@ -390,7 +398,11 @@ class FckModel(nn.Module):
         return mp_box_feats
 
     @staticmethod
-    def pad_sequence(inds, feats):
+    def pad_sequence(
+            inds,
+            feats,
+            rel_labels=None
+    ):
         """pad lstm input and compute lstm length input
         e.g.
             batch0='abc', batch1='xy'
@@ -404,6 +416,7 @@ class FckModel(nn.Module):
                 e.g. inds[0,:]=[0,3,2] means relation of box 3 to box2 in image 0
             feats: torch.Tensor, unpadded features
                 with shape of (NumOfRels, DimOfFeature)
+            rel_labels: when train
         Returns:
             packed_lengths: list of int, length of pytorch RNN input
                 refer to pytorch documentation(pack_padded_sequence)
@@ -429,11 +442,18 @@ class FckModel(nn.Module):
         length_matrix[::-1].sort(order='length')
         max_length = int(length_matrix[0][1])
         sorted_lengths = length_matrix['length']
+
         # get feat
+        padding_feat = torch.FloatTensor(num_img, max_length, feat_dim).zero_()
+        padding_inds = torch.LongTensor(num_img, max_length, inds.shape[-1]).zero_()
+        if rel_labels is not None:
+            padding_rel_labels = torch.LongTensor(num_img, max_length, rel_labels.shape[-1]).zero_()
+
         if feats.data.is_cuda:
-            padding_feat = torch.FloatTensor(num_img, max_length, feat_dim).zero_().cuda(feats.get_device())
-        else:
-            padding_feat = torch.FloatTensor(num_img, max_length, feat_dim).zero_()
+            padding_feat = padding_feat.cuda(feats.get_device())
+            padding_inds = padding_inds.cuda(feats.get_device())
+            if rel_labels is not None:
+                padding_rel_labels = padding_rel_labels.cuda(feats.get_device())
         # in re-ordered order
         for re_im_i in range(num_img):
             length_i = length_matrix[re_im_i][1]
@@ -442,17 +462,9 @@ class FckModel(nn.Module):
             s = length_matrix['s'][re_im_i]
             e = length_matrix['e'][re_im_i]
             padding_feat[re_im_i][:length_i] = feats[s:e].data
-        if feats.data.is_cuda:
-            re_inds = torch.Tensor().cuda()
-        else:
-            re_inds = torch.Tensor()
-        for ix, im_i in enumerate(length_matrix['imgid']):
-            im_i_length = length_matrix[ix][1]
-            im_i_inds = torch.ones(int(im_i_length)) * im_i.astype('float')
-            if feats.data.is_cuda:
-                re_inds = torch.cat([re_inds, im_i_inds.cuda()], dim=0)
-            else:
-                re_inds = torch.cat([re_inds, im_i_inds], dim=0)
+            padding_inds[re_im_i][:length_i] = inds[s:e]
+            if rel_labels is not None:
+                padding_rel_labels[re_im_i][:length_i] = rel_labels[s:e].data
 
         re_inds_np_inds = np.array([], dtype='int')
         for ix, v in enumerate(length_matrix):
@@ -463,7 +475,10 @@ class FckModel(nn.Module):
             )
         re_inds = inds[re_inds_np_inds.tolist()]
 
-        return Variable(padding_feat), sorted_lengths, re_inds, re_inds_np_inds
+        if rel_labels is None:
+            return Variable(padding_feat), sorted_lengths, re_inds, padding_inds
+        else:
+            return Variable(padding_feat), sorted_lengths, re_inds, padding_rel_labels
 
     @staticmethod
     def re_order_packed_seq(packed_seq, ori_inds, re_inds):
@@ -479,6 +494,7 @@ class FckModel(nn.Module):
         Returns:
             seq: torch.Tensor, re-order sequence
         """
+        #embed(header='re_order')
         unpack, lens = pad_packed_sequence(packed_seq, batch_first=True)
         # unpack: (NumImg, MaxLength, DIM)
         # lens: (NumImg, 1)
@@ -514,22 +530,6 @@ class FckModel(nn.Module):
 
         return feats[perm]
 
-    def update_mem(self, rel_feats):
-        """Relation memory scheme
-        Update memory and get message from memory
-        Args:
-            rel_feats: Variable, relation features
-        """
-        pass
-
-    def remember(self, rel_feats):
-        """
-
-        :param rel_feats:
-        :return:
-        """
-        pass
-
     def forward(
             self,
             x,
@@ -564,10 +564,18 @@ class FckModel(nn.Module):
             If test:
                 prob dists, boxes, img inds, maxscores, classes
         """
+        s_t = time.time()
+        verbose = False
+
+        def check(sl, een, sst=s_t):
+            if verbose:
+                print('{}{}'.format(sl, een-sst))
+
         result = self.detector(
             x, im_sizes, image_offset, gt_boxes,
             gt_classes, gt_rels, proposals, train_anchor_inds, return_fmap=True
         )
+        check('detector', tt())
 
         assert not result.is_none(), 'Empty detection result'
 
@@ -668,18 +676,27 @@ class FckModel(nn.Module):
         result.rel_trim_pos = torch.Tensor([box_pos_pair_ind.size(0)]).cuda(box_pos_pair_ind.get_device())
         result.rel_trim_total = torch.Tensor([rel_inds.size(0)]).cuda(rel_inds.get_device())
 
-        # filtering relations
-        filter_rel_inds = rel_inds[box_pos_pair_ind.data]
-        filter_box_pair_feats = box_pair_feats[box_pos_pair_ind.data]
+        if self.trim_graph:
+            # filtering relations
+            filter_rel_inds = rel_inds[box_pos_pair_ind.data]
+            filter_box_pair_feats = box_pair_feats[box_pos_pair_ind.data]
+        else:
+            filter_rel_inds = rel_inds
+            filter_box_pair_feats = box_pair_feats
         if self.training:
-            filter_rel_labels = result.rel_labels[box_pos_pair_ind.data]
-            try:
-                num_gt_filtered = torch.nonzero(filter_rel_labels[:, -1]).size(0)
-            except:
-                embed(header='exception in gt_filtered')
+            if self.trim_graph:
+                filter_rel_labels = result.rel_labels[box_pos_pair_ind.data]
+            else:
+                filter_rel_labels = result.rel_labels
+            num_gt_filtered = torch.nonzero(filter_rel_labels[:, -1])
+            if num_gt_filtered.shape == torch.Size([]):
+                num_gt_filtered = 0
+            else:
+                num_gt_filtered = num_gt_filtered.size(0)
             num_gt_orignial = torch.nonzero(result.rel_labels[:, -1]).size(0)
             result.rel_pn_recall = torch.Tensor([num_gt_filtered / num_gt_orignial]).cuda(x.get_device())
             result.rel_labels = filter_rel_labels
+        check('trim', tt())
 
         # message passing between boxes and relations
         if self.mode in ('sgcls', 'sgdet'):
@@ -689,17 +706,29 @@ class FckModel(nn.Module):
             result.rm_obj_dists = box_cls_scores
             obj_scores, box_classes = F.softmax(box_cls_scores[:, 1:].contiguous(), dim=1).max(1)
             box_classes += 1  # skip background
+        check('mp', tt())
 
         # RelationCNN
         filter_box_pair_feats_fc1 = self.relcnn_fc1(filter_box_pair_feats)
         filter_box_pair_score = self.relcnn_fc2(filter_box_pair_feats_fc1)
-        if not self.graph_cons:
-            filter_box_pair_score = filter_box_pair_score.view(-1, 2, self.num_rels)
+
         result.rel_dists = filter_box_pair_score
+        pred_scores_stage_one = F.softmax(result.rel_dists, dim=1).data
 
         # filter_box_pair_feats is to be added to memory
-        padded_filter_feats, pack_lengths, re_filter_rel_inds, re_indexes = \
-            self.pad_sequence(filter_rel_inds, filter_box_pair_feats_fc1)
+        if self.training:
+            padded_filter_feats, pack_lengths, re_filter_rel_inds, padded_rel_labels = \
+                self.pad_sequence(
+                    filter_rel_inds,
+                    filter_box_pair_feats_fc1,
+                    rel_labels=result.rel_labels
+                )
+        else:
+            padded_filter_feats, pack_lengths, re_filter_rel_inds, padded_rel_inds = \
+                self.pad_sequence(
+                    filter_rel_inds,
+                    filter_box_pair_feats_fc1
+                )
 
         # trimming zeros to avoid no rel in image
         trim_pack_lengths = np.trim_zeros(pack_lengths)
@@ -708,40 +737,39 @@ class FckModel(nn.Module):
             trim_padded_filter_feats, trim_pack_lengths, batch_first=True
         )
         if self.training:
-            re_order_rel_labels = result.rel_labels[re_indexes.tolist()]
+            trim_padded_rel_labels = padded_rel_labels[:trim_pack_lengths.shape[0]]
+            packed_rel_labels = pack_padded_sequence(
+                trim_padded_rel_labels, trim_pack_lengths, batch_first=True
+            )
             rel_mem_dists = self.mem_module(
                 inputs=packed_filter_feats,
-                rel_labels=re_order_rel_labels
+                rel_labels=packed_rel_labels
             )
             rel_mem_dists = self.re_order_packed_seq(rel_mem_dists, filter_rel_inds, re_filter_rel_inds)
+            result.rel_mem_dists = rel_mem_dists
         else:
-            rel_mem_dists = self.mem_module(
-                inputs=packed_filter_feats
+            trim_padded_rel_inds = padded_rel_inds[:trim_pack_lengths.shape[0]]
+            packed_rel_inds = pack_padded_sequence(
+                trim_padded_rel_inds, trim_pack_lengths, batch_first=True
             )
+            rel_mem_dists = self.mem_module(
+                inputs=packed_filter_feats,
+                rel_inds=packed_rel_inds,
+                obj_classes=box_classes
+            )
+            rel_mem_probs = self.re_order_packed_seq(rel_mem_dists, filter_rel_inds, re_filter_rel_inds)
+            rel_mem_probs = rel_mem_probs.data
 
-        result.rel_mem_dists = rel_mem_dists
-
+        check('mem', tt())
         if self.training:
             return result
 
-        if result.rel_mem_dists is None:
-            pred_scores = F.softmax(result.rel_dists, dim=1)
-        else:
-            # rel_mem_dist is a list in test mode
-            pred_scores_rel = []
-            for rel_i in range(self.num_rels):
-                rel_i_rel_mem_dists = rel_mem_dists[rel_i]
-                rel_i_rel_mem_dists = \
-                    self.re_order_packed_seq(
-                        rel_i_rel_mem_dists,
-                        filter_rel_inds,
-                        re_filter_rel_inds
-                    )
-                rel_i_pred_scores = F.softmax(rel_i_rel_mem_dists, dim=1)
-                pred_scores_rel.append(rel_i_pred_scores)
-                # TODO:
-                # multiply P(M|O)
-            pred_scores = F.softmax(result.rel_mem_dists, dim=1)
+        # pad stage one output in rel_mem_probs if it sums zero
+        for rel_i in range(rel_mem_probs.size(0)):
+            rel_i_probs = rel_mem_probs[rel_i]
+            if rel_i_probs.sum() == 0:
+                rel_mem_probs[rel_i] = pred_scores_stage_one[rel_i]
+
         """
         filter_dets
         boxes: bbox regression else [num_box, 4]
@@ -750,7 +778,8 @@ class FckModel(nn.Module):
         rel_inds: [num_rel, 2] TENSOR consisting of (im_ind0, im_ind1)
         pred_scores: [num_rel, num_predicates] including irrelevant class(#relclass + 1)
         """
-        return filter_dets(boxes, obj_scores, box_classes, filter_rel_inds[:, 1:].contiguous(), pred_scores)
+        check('mem processing', tt())
+        return filter_dets(boxes, obj_scores, box_classes, filter_rel_inds[:, 1:].contiguous(), rel_mem_probs)
 
     def __getitem__(self, batch):
         """ Hack to do multi-GPU training"""

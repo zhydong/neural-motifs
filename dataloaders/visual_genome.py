@@ -52,7 +52,10 @@ class VG(Dataset):
         self.filter_duplicate_rels = filter_duplicate_rels and self.mode == 'train'
 
         self.split_mask, self.gt_boxes, self.gt_classes, self.relationships = load_graphs(
-            self.roidb_file, self.mode, num_im, num_val_im=num_val_im,
+            self.roidb_file,
+            self.mode,
+            num_im,
+            num_val_im=num_val_im,
             filter_empty_rels=filter_empty_rels,
             filter_non_overlap=self.filter_non_overlap and self.is_train,
         )
@@ -261,8 +264,14 @@ def load_image_filenames(image_file, image_dir=VG_IMAGES):
     return fns
 
 
-def load_graphs(graphs_file, mode='train', num_im=-1, num_val_im=0, filter_empty_rels=True,
-                filter_non_overlap=False):
+def load_graphs(
+        graphs_file,
+        mode='train',
+        num_im=-1,
+        num_val_im=0,
+        filter_empty_rels=True,
+        filter_non_overlap=False
+):
     """
     Load the file containing the GT boxes and relations, as well as the dataset split
     :param graphs_file: HDF5
@@ -413,7 +422,7 @@ class VGDataLoader(torch.utils.data.DataLoader):
         )
         val_load = cls(
             dataset=val_data,
-            batch_size=batch_size * num_gpus if mode=='det' else num_gpus,
+            batch_size=batch_size * num_gpus if mode == 'det' else num_gpus,
             shuffle=False,
             num_workers=num_workers,
             collate_fn=lambda x: vg_collate(x, mode=mode, num_gpus=num_gpus, is_train=False),

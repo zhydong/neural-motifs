@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # This is a script that will evaluate all models for SGCLS
-CUDA_VISIBLE_DEVICES=2
+CUDA_VISIBLE_DEVICES=8
 echo Using GPUs: ${CUDA_VISIBLE_DEVICES}
 
 if [[ $1 == "0" ]]; then

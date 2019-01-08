@@ -6,9 +6,10 @@ function usage(){
     echo "This is a script that will train all of the models for scene graph classification and then evaluate them"
     echo -e "run: ./script/train_model_sgcls [1|2|3|4|5]"
 }
-export CUDA_VISIBLE_DEVICES=4
+export CUDA_VISIBLE_DEVICES=8
 export NUM_GPU=1
 export BATCH_SIZE=4
+export NUM_WORKER=2
 echo Using GPUs: ${CUDA_VISIBLE_DEVICES}
 
 if [[ $1 == "0" ]]; then
@@ -40,8 +41,8 @@ elif [[ $1 == "5" ]]; then
     echo "TRAINING FCKNET V3"
     python models/train_rels.py -m sgcls -model fcknet_v3 \
     -b ${BATCH_SIZE} -p 100 -lr 1e-3 -ngpu ${NUM_GPU} -clip 5 \
-    -use_tf -nwork 4 \
-    -ckpt checkpoints/vgdet/vg-faster-rcnn.tar \
+    -use_tf -nwork ${NUM_WORKER} \
+    -ckpt checkpoints/fcknet_v3-sgcls/vgrel-0.tar
     -save_dir checkpoints/fcknet_v3-sgcls
 else
     usage

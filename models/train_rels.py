@@ -8,6 +8,7 @@ import time
 import numpy as np
 import pandas as pd
 import os.path as osp
+from tqdm import tqdm
 
 import torch
 from torch import optim
@@ -272,7 +273,7 @@ def train_batch(batch, bi):
 def val_epoch():
     detector.eval()
     evaluator = BasicSceneGraphEvaluator.all_modes()
-    for val_b, batch in enumerate(val_loader):
+    for val_b, batch in enumerate(tqdm(val_loader)):
         val_batch(conf.num_gpus * val_b, batch, evaluator)
     evaluator[conf.mode].print_stats()
     return np.mean(evaluator[conf.mode].result_dict[conf.mode + '_recall'][100])
@@ -308,7 +309,7 @@ def val_batch(batch_num, b, evaluator):
 
 print("Training starts now!")
 optimizer, scheduler = get_optim(conf.lr * conf.num_gpus * conf.batch_size)
-#mAp = val_epoch()
+mAp = val_epoch()
 for epoch in range(start_epoch + 1, start_epoch + 1 + conf.num_epochs):
     rez = train_epoch(epoch)
     print("overall{:2d}: ({:.3f})\n{}".format(epoch, rez.mean(1)['total'], rez.mean(1)), flush=True)

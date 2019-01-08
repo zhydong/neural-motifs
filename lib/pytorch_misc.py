@@ -206,7 +206,7 @@ def print_para(model):
         strings.append("{:<50s}: {:<16s}({:<8s}) ({})".format(
             p_name,
             '[{}]'.format(','.join(size)),
-            '{}MB'.format(prod * 4 / 1000 / 1000),
+            '%.1f MB' % float(prod * 4 / 1000 / 1000),
             'grad' if p_req_grad else '    '
         ))
     return '\n {}MB total parameters \n ----- \n \n{}'.format(total_params * 4 / 1000000, '\n'.join(strings))

@@ -10,6 +10,7 @@ from torch.nn.utils.rnn import PackedSequence
 
 from lib.fpn.box_utils import nms_overlaps
 from lib.word_vectors import obj_edge_vectors
+from lib.get_dataset_counts import get_counts
 from .highway_lstm_cuda.alternating_highway_lstm import block_orthogonal
 
 from IPython import embed
@@ -102,6 +103,15 @@ class MemoryRNN(torch.nn.Module):
         self.out = nn.Linear(self.hidden_size, len(self.rel_classes))
         self.reset_parameters()
 
+        fg_matrix, bg_matrix = get_counts()
+        rel_obj_distribution = fg_matrix / (fg_matrix.sum(2)[:, :, None] + 1e-5)
+        rel_obj_distribution = torch.FloatTensor(rel_obj_distribution)
+        rel_obj_distribution = rel_obj_distribution.view(-1, self.num_rels)
+
+        self.rel_obj_distribution = nn.Embedding(rel_obj_distribution.size(0), self.num_rels)
+        # (#obj_class * #obj_class, #rel_class)
+        self.rel_obj_distribution.weight.data = rel_obj_distribution
+
     @property
     def num_rels(self):
         return len(self.rel_classes)
@@ -176,8 +186,10 @@ class MemoryRNN(torch.nn.Module):
     def forward(
             self,  # pylint: disable=arguments-differ
             inputs: PackedSequence,
-            initial_state: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
-            rel_labels: Optional[torch.Tensor] = None,
+            initial_state: Optional[Tuple[torch.Tensor, torch.Tensor]]=None,
+            rel_labels: Optional[PackedSequence]=None,
+            obj_classes: Optional[torch.Tensor]=None,
+            rel_inds: Optional[PackedSequence]=None
     ):
         """
         Args:
@@ -189,8 +201,10 @@ class MemoryRNN(torch.nn.Module):
             A tuple (state, memory) representing the initial hidden state and memory
             of the LSTM. Each tensor has shape (1, batch_size, output_dimension).
 
-            rel_labels: Variable, the relation label, (NumOfRels, 4)
+            rel_labels: PackSequence, the relation label, (NumOfRels, 4)
                 e.g. labels[0,:] = [imgid, box0, box1, rel_class_id]
+            obj_classes:
+            rel_inds:
         Returns:
             out_dists:
                 in training mode: PackSequence, it contains a torch.FloatTensor of shape
@@ -199,14 +213,28 @@ class MemoryRNN(torch.nn.Module):
                     the length of the list is #Rel.
                     e.g. out_dists[0] = PackSequence with shape of (NumOfRels, Output_dimemsion)
         """
-        if not isinstance(inputs, PackedSequence):
-            raise ValueError('inputs must be PackedSequence but got %s' % (type(inputs)))
+        assert isinstance(inputs, PackedSequence), 'inputs must be PackedSequence but got %s' % type(inputs)
         if self.training:
             assert rel_labels is not None, 'Relation labels should be provided to train this module'
+            assert isinstance(rel_labels, PackedSequence)
+        else:
+            assert rel_inds is not None, 'Relation index of box'
+            assert obj_classes is not None, 'object classes'
+            assert isinstance(rel_inds, PackedSequence)
 
         sequence_tensor, batch_lengths = inputs
+        if self.training:
+            sequence_rel_label, _ = rel_labels
+        else:
+            sequence_rel_inds, _ = rel_inds
+            # <sub, pred, obj>
+            sequence_sub_class = obj_classes[sequence_rel_inds[:, 1]]
+            # notice, obj means obj in triplet here
+            sequence_obj_class = obj_classes[sequence_rel_inds[:, 2]]
+            dis_inds = sequence_sub_class * self.num_rels + sequence_obj_class
+            sequence_distribution = self.rel_obj_distribution.weight.data[dis_inds.data]
+
         batch_size = batch_lengths[0]
-        nr_rels = rel_labels.size(0)
 
         # We're just doing an LSTM decoder here so ignore states, etc
         if initial_state is None:
@@ -226,11 +254,8 @@ class MemoryRNN(torch.nn.Module):
         else:
             dropout_mask = None
 
-        # Only accumulating label predictions here, discarding everything else
-        if self.training:
-            out_dists = []
-        else:
-            out_dists = [[] for _ in range(nr_rels)]
+        # embed(header='mem test')
+        out_dists = []
 
         end_ind = 0
         for i, l_batch in enumerate(batch_lengths):
@@ -244,11 +269,12 @@ class MemoryRNN(torch.nn.Module):
                     dropout_mask = dropout_mask[:l_batch]
 
             if self.training:
+
                 # load relation class memory
                 for offset in range(l_batch):
                     ind = start_ind + offset
-                    previous_memory[offset].data = self.rel_mem_c(rel_labels[ind][3]).data
-                    previous_state[offset].data = self.rel_mem_h(rel_labels[ind][3]).data
+                    previous_memory[offset].data = self.rel_mem_c.weight.data[sequence_rel_label[ind][3]]
+                    previous_state[offset].data = self.rel_mem_h.weight.data[sequence_rel_label[ind][3]]
 
                 timestep_input = sequence_tensor[start_ind:end_ind]
 
@@ -262,34 +288,56 @@ class MemoryRNN(torch.nn.Module):
                 # store relation class memory
                 for offset in range(l_batch):
                     ind = start_ind + offset
-                    self.rel_mem_c.weight.data[rel_labels[ind][3].data] = previous_memory[offset].data[None, :]
-                    self.rel_mem_h.weight.data[rel_labels[ind][3].data] = previous_state[offset].data[None, :]
+                    self.rel_mem_c.weight.data[sequence_rel_label[ind][3]] = \
+                        previous_memory[offset].data[None, :]
+                    self.rel_mem_h.weight.data[sequence_rel_label[ind][3]] = \
+                        previous_state[offset].data[None, :]
 
                 pred_dist = self.out(previous_state)
                 out_dists.append(pred_dist)
             else:  # test mode
-                for rel_i in range(self.num_rels):
-                    for offset in range(l_batch):
-                        previous_memory[offset].data = self.rel_mem_c(rel_i).data
-                        previous_state[offset].data = self.rel_mem_h(rel_i).data
-                    timestep_input = sequence_tensor[start_ind:end_ind]
 
-                    previous_state, previous_memory = self.lstm_equations(
-                        timestep_input,
-                        previous_state,
-                        previous_memory,
-                        dropout_mask=dropout_mask
-                    )
+                timestep_input = sequence_tensor[start_ind:end_ind]
+                timestep_dis = sequence_distribution[start_ind:end_ind]
 
-                    pred_dist = self.out(previous_state)
-                    out_dists[rel_i].append(pred_dist)
+                t_offset_sum = None
+                for offset in range(l_batch):
+                    t_offset_input = timestep_input[offset][None, :]
+                    t_offset_dis = timestep_dis[offset][None, :]
+                    t_offset_state = previous_state[offset][None, :]
+                    t_offset_memory = previous_memory[offset][None, :]
+                    if dropout_mask is not None:
+                        dropout_mask = dropout_mask[offset][None, :]
 
-        if self.training:
-            out_dists = torch.cat(out_dists, 0)
-            out_dists = PackedSequence(out_dists, batch_lengths)
-        else:
-            for rel_i in range(self.num_rels):
-                out_dists[rel_i] = torch.cat(out_dists[rel_i], 0)
-                out_dists = PackedSequence(out_dists, batch_lengths)
+                    fg_rel_mem = torch.nonzero(t_offset_dis)
+                    for rel_i in fg_rel_mem:
 
-        return out_dists
+                        t_offset_memory.data = self.rel_mem_h.weight.data[rel_i[1]][None, :]
+                        t_offset_state.data = self.rel_mem_c.weight.data[rel_i[1]][None, :]
+                        h, c = self.lstm_equations(
+                            t_offset_input,
+                            t_offset_state,
+                            t_offset_memory,
+                            dropout_mask=dropout_mask
+                        )
+
+                        pred_dist = self.out(h)
+                        pred_prob = F.softmax(pred_dist, dim=1) * t_offset_dis[0][rel_i[1]]
+                        if t_offset_sum is None:
+                            t_offset_sum = pred_prob
+                        else:
+                            t_offset_sum += pred_prob
+                    # sum rel_i up
+
+                    if t_offset_sum is None:
+                        pad_out = Variable(torch.zeros(1, self.num_rels))
+                        if sequence_tensor.data.is_cuda:
+                            pad_out = pad_out.cuda(sequence_tensor.get_device())
+                        out_dists.append(pad_out)
+                    else:
+                        out_dists.append(t_offset_sum)
+
+        out_dists = torch.cat(out_dists, 0)
+        out_dists_final = PackedSequence(out_dists, batch_lengths)
+
+        return out_dists_final
